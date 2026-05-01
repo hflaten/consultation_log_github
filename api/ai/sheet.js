@@ -226,7 +226,7 @@ async function generateSheet(input) {
 
   const data = await response.json();
   const parsed = parseResponseJson(data);
-  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis);
+  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis, input.firstEpisode || "first");
 }
 
 function parseResponseJson(data) {
@@ -244,11 +244,11 @@ function parseResponseJson(data) {
   return JSON.parse(text);
 }
 
-function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
+function normalizeAiSheet(sheet, cacheKey, sourceBasis, firstEpisodeMode) {
   return {
     title: sheet.title,
     goal: sheet.goal,
-    firstEpisode: sheet.firstEpisode,
+    firstEpisode: firstEpisodeMode === "first",
     firstEpisodeFocus: sheet.firstEpisodeFocus,
     redFlags: sheet.redFlags,
     questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
