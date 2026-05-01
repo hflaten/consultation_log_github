@@ -1,7 +1,7 @@
 const SHEET_VERSION = "v1";
 const PROMPT_VERSION = "v1";
 const SCHEMA_VERSION = "v1";
-const SOURCE_VERSION = "openai:gpt-5.2";
+const SOURCE_VERSION = "openai:gpt-5-mini";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const NEURO_SCREENING_FIELDS = [
@@ -610,6 +610,23 @@ function selectAnswer(button) {
 function handleAnswerKeydown(event) {
   const key = event.key;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(key)) return;
+
+  if (state.viewMode === "focus") {
+    if (key === "Enter" || key === "ArrowRight") {
+      event.preventDefault();
+      event.stopPropagation();
+      moveActiveItem(1);
+      return;
+    }
+
+    if (key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      moveActiveItem(-1);
+      return;
+    }
+  }
+
   const buttons = [...event.currentTarget.closest(".button-row").querySelectorAll(".answer-button")];
   const index = buttons.indexOf(event.currentTarget);
 

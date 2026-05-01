@@ -1,4 +1,7 @@
-const OPENAI_MODEL = "gpt-5.2";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
+const OPENAI_REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT || "none";
+const parsedMaxOutputTokens = Number.parseInt(process.env.OPENAI_MAX_OUTPUT_TOKENS || "2200", 10);
+const OPENAI_MAX_OUTPUT_TOKENS = Number.isFinite(parsedMaxOutputTokens) ? parsedMaxOutputTokens : 2200;
 const SHEET_BUCKET = "consultassist-sheet-templates";
 const REVIEW_METADATA_VERSION = "review-v1";
 const REVIEWED_PREFIX = "reviewed";
@@ -167,7 +170,10 @@ async function generateSheet(input) {
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      max_output_tokens: 3500,
+      max_output_tokens: OPENAI_MAX_OUTPUT_TOKENS,
+      reasoning: {
+        effort: OPENAI_REASONING_EFFORT
+      },
       instructions: [
         "Du lager strukturerte konsultasjonsark for fastleger i Norge.",
         "Svar kun med JSON som matcher skjemaet.",
