@@ -63,10 +63,16 @@ Security notes:
 - Storage uploads require RLS policies. Upsert requires insert, select, and update permissions.
 - Supabase-backed shared template caching is wired through the Vercel Function, not anonymous storage policies.
 
+## PDF export
+
+The journal note can be exported directly from the browser with **Eksporter PDF**. The export uses a printable A4 layout in a temporary print window, sets a date-based filename such as `consultassist-journalnotat-2026-05-01.pdf`, and sends only the visible journal text to the export view.
+
+If a browser blocks the export window or direct generation is unavailable, use **Skriv ut / Lagre som PDF** and choose "Save as PDF" in the browser print dialog. This fallback uses the same print stylesheet and omits prompts, cache metadata, controls, and implementation details.
+
 ## Current MVP
 
 - `index.html`: GP-facing workflow.
 - `styles.css`: responsive interface and print/PDF layout.
-- `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
+- `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and PDF/print export.
 
 The current MVP first checks browser localStorage, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase.

@@ -117,11 +117,12 @@
           <div class="panel-head">
             <div>
               <h2 id="report-heading">Journalnotat</h2>
-              <p>Kopier teksten eller bruk utskrift/PDF fra nettleseren.</p>
+              <p>Eksporter journalnotatet som PDF, eller bruk nettleserens utskrift/Lagre som PDF ved behov.</p>
             </div>
             <div class="report-actions">
               <button id="copyReport" class="secondary-button" type="button" disabled>Kopier</button>
               <button id="exportPdf" type="button" disabled>Eksporter PDF</button>
+              <button id="printReport" class="secondary-button" type="button" disabled>Skriv ut / Lagre som PDF</button>
             </div>
           </div>
           <textarea id="reportOutput" rows="12" placeholder="Journalnotat vises her etter vurdering."></textarea>
@@ -141,6 +142,8 @@
       </div>
     </aside>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/3.0.3/jspdf.umd.min.js" integrity="sha512-ad3j5/L4h648YM/KObaUfjCsZRBP9sAOmpjaT2BDx6u9aBrKFp7SbeHykruy83rxfmG42+5QqeL/ngcojglbJw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="js/report-pdf.js"></script>
     <script src="app.js"></script>
   </body>
 </html>
