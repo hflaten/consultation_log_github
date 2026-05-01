@@ -252,8 +252,8 @@ function renderSection(title, items) {
 function renderItem(entry) {
   return `<article class="item-card">
     <div class="item-title">
-      <strong>${escapeHtml(entry.label)}</strong>
-      <span>${escapeHtml(entry.why)}</span>
+      <h4 class="item-label">${escapeHtml(entry.label)}</h4>
+      <p class="item-rationale">${escapeHtml(entry.why)}</p>
     </div>
     <div class="button-row">
       ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}

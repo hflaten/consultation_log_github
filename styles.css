@@ -1,12 +1,14 @@
 :root {
   color-scheme: light;
   --ink: #172026;
-  --muted: #64727d;
+  --muted: #4f5d67;
+  --muted-strong: #39464f;
   --line: #d8e1e6;
   --panel: #ffffff;
   --page: #f4f7f6;
   --teal: #0f766e;
   --teal-strong: #115e59;
+  --teal-soft: #e9f5f2;
   --amber: #b7791f;
   --red: #b42318;
   --blue: #2563eb;
@@ -121,6 +123,17 @@ h2 {
   margin-bottom: 6px;
 }
 
+h3 {
+  color: var(--ink);
+  font-size: 1rem;
+  line-height: 1.3;
+  margin: 0;
+}
+
+h4 {
+  margin: 0;
+}
+
 p {
   color: var(--muted);
   line-height: 1.45;
@@ -166,11 +179,12 @@ p {
 }
 
 label {
-  color: var(--muted);
+  color: var(--muted-strong);
   display: grid;
-  font-size: 0.86rem;
-  font-weight: 700;
+  font-size: 0.95rem;
+  font-weight: 750;
   gap: 6px;
+  line-height: 1.35;
 }
 
 input,
@@ -179,9 +193,17 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 6px;
   color: var(--ink);
+  font-size: 1rem;
   min-width: 0;
   padding: 11px 12px;
   width: 100%;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #6a7780;
+  font-size: 0.95rem;
+  opacity: 1;
 }
 
 textarea {
@@ -277,24 +299,31 @@ textarea {
 .item-card {
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 14px;
+  padding: 16px;
 }
 
 .item-title {
-  align-items: start;
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
-.item-title strong {
+.item-label {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 800;
   line-height: 1.35;
 }
 
-.item-title span {
-  color: var(--muted);
-  font-size: 0.82rem;
+.item-rationale {
+  background: var(--teal-soft);
+  border-left: 4px solid var(--teal);
+  border-radius: 6px;
+  color: var(--muted-strong);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  margin: 0;
+  padding: 9px 12px;
 }
 
 .button-row {
