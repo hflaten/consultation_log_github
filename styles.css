@@ -291,6 +291,7 @@ textarea {
   display: grid;
   gap: 18px;
   grid-template-columns: 1fr;
+  align-items: start;
 }
 
 .wide-button {
@@ -338,9 +339,7 @@ textarea {
 }
 
 .summary-panel {
-  position: sticky;
-  top: 12px;
-  z-index: 5;
+  position: static;
 }
 
 .summary-panel h2 {
@@ -772,6 +771,18 @@ textarea {
   color: var(--ink);
 }
 
+@media (min-width: 1040px) {
+  .sheet-layout {
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+  }
+
+  .summary-panel {
+    position: sticky;
+    top: 12px;
+    z-index: 5;
+  }
+}
+
 @media (max-width: 840px) {
   .app-shell {
     padding: 12px;
@@ -800,18 +811,13 @@ textarea {
     align-self: flex-start;
   }
 
-  .form-grid,
-  .sheet-layout {
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
   .setup-summary {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .summary-panel {
-    position: static;
   }
 
   .summary-head,
