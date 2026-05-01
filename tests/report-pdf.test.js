@@ -10,7 +10,7 @@ const {
 const reportWithMetadata = `Journalnotat - Svimmelhet
 
 Problemstilling:
-Pasienten beskriver økende svimmelhet, kvalme og låsning i nakke.
+Pasienten beskriver økende svimmelhet, kvalme og nærliggende låsning i nakke.
 
 Opplysninger og funn:
 - Debut og forløp: Akutt. Startet i går.
@@ -26,7 +26,7 @@ Plan:
 const sanitized = sanitizeReportText(reportWithMetadata);
 
 assert.match(sanitized, /Journalnotat - Svimmelhet/);
-assert.match(sanitized, /økende svimmelhet, kvalme og låsning/);
+assert.match(sanitized, /økende svimmelhet, kvalme og nærliggende låsning/);
 assert.match(sanitized, /Hørsel upåfallende/);
 assert.match(sanitized, /øresmerter eller øresus/);
 assert.match(sanitized, /Oppfølging ved forverring/);
