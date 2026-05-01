@@ -1,6 +1,7 @@
 const OPENAI_MODEL = "gpt-5.2";
 const SHEET_BUCKET = "consultassist-sheet-templates";
 const REVIEW_METADATA_VERSION = "review-v1";
+const DEFAULT_TEMPLATE_VERSION = "v1";
 const SOURCE_POLICY_VERSION = "source-policy-v1";
 const REVIEWED_PREFIX = "reviewed";
 const DRAFT_PREFIX = "drafts";
@@ -304,7 +305,7 @@ function markSheetReviewed(sheet, input) {
       status: REVIEW_STATUS.approvedForUse,
       reviewer: input.reviewer.trim(),
       reviewedAt,
-      sourceBasis: input.sourceBasis || input.reviewBasis || sheet.review?.sourceBasis || null
+      sourceBasis: normalizeSourceBasis(input.sourceBasis || input.reviewBasis || sheet.review?.sourceBasis)
     })
   };
 }
@@ -326,7 +327,7 @@ function createSourceMetadata({
   sourceVersion,
   sourceDate = null,
   retrievedAt = null,
-  templateVersion = null,
+  templateVersion = DEFAULT_TEMPLATE_VERSION,
   generatedAt = new Date().toISOString()
 }) {
   return {
@@ -349,7 +350,7 @@ function normalizeSourceMetadata(metadata, sourceName) {
       sourceVersion: metadata.sourceVersion || `openai:${OPENAI_MODEL}`,
       sourceDate: metadata.sourceDate || metadata.date || null,
       retrievedAt: metadata.retrievedAt || null,
-      templateVersion: metadata.templateVersion || null,
+      templateVersion: metadata.templateVersion || DEFAULT_TEMPLATE_VERSION,
       generatedAt: metadata.generatedAt || metadata.createdAt || null
     });
   }
