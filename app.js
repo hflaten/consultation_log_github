@@ -33,7 +33,9 @@ Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
-- Marker røde flagg og når akutt vurdering bør vurderes.`;
+- Marker røde flagg og når akutt vurdering bør vurderes.
+- Skill tydelig mellom situasjoner som trenger rask handling og situasjoner som kan vente med registrering, symptomdagbok og sikkerhetsnett.
+- Ikke gjenta eller be om direkte personidentifiserende opplysninger.`;
 
 const dizzinessTemplate = {
   title: "Svimmelhet - minimumsliste",
@@ -65,6 +67,7 @@ const dizzinessTemplate = {
     "Akutt innleggelse/konferering ved nevrologiske utfall, synkope med alarmsymptomer eller ustabil pasient.",
     "BPPV-mistanke: vurder reposisjonsmanøver og kort kontroll ved manglende bedring.",
     "Ortostatisk mistanke: gjennomgå væske, legemidler og BT-kontroll.",
+    "Kan vente ved stabile, milde plager uten røde flagg: avtal ordinær oppfølging, symptomdagbok og sikkerhetsnett.",
     "Ved vedvarende eller uklar svimmelhet: vurder blodprøver, EKG, audiometri eller henvisning basert på funn."
   ]
 };
@@ -91,6 +94,7 @@ const genericTemplate = {
   ],
   followUp: [
     "Akutt tiltak ved røde flagg eller påvirket pasient.",
+    "Kan vente ved stabile, milde plager uten røde flagg: avtal ordinær oppfølging og la pasienten registrere symptomforløp før timen.",
     "Planlegg kontroll dersom symptomer vedvarer, forverres eller diagnosen er usikker.",
     "Gi tydelige råd om når pasienten skal ta kontakt raskt."
   ]
@@ -184,14 +188,35 @@ function normalizeTopic(text) {
   return lower.split(/[.,\n]/)[0].replace(/[^a-zæøå0-9 ]/gi, "").trim().slice(0, 60) || "generelt";
 }
 
-function cacheKey() {
+function clinicalTopic(text) {
+  const lower = text.toLowerCase();
+  const topicPatterns = [
+    ["svimmelhet", /svimmel|vertigo|ustø/],
+    ["brystsmerter", /brystsmer|thorax|tungpust|dyspn/],
+    ["hodepine", /hodepine|migrene/],
+    ["magesmerter", /magesmer|abdominal|kvalme|oppkast/],
+    ["luftveisplager", /hoste|luftvei|feber|sår hals|pust/],
+    ["urinveisplager", /urin|dysuri|pollakisuri/],
+    ["hudplager", /utslett|hud|kløe/],
+    ["psykisk-helse", /angst|depresjon|søvn|stress/]
+  ];
+  const match = topicPatterns.find(([, pattern]) => pattern.test(lower));
+  return match ? match[0] : "generell-problemstilling";
+}
+
+function ageBand() {
   const age = Number.parseInt(els.age.value, 10);
-  const ageBand = Number.isFinite(age) ? `${Math.floor(age / 10) * 10}-${Math.floor(age / 10) * 10 + 9}` : "ukjent";
+  if (!Number.isFinite(age) || age < 0 || age > 120) return "ukjent";
+  const lower = Math.floor(age / 10) * 10;
+  return `${lower}-${lower + 9}`;
+}
+
+function cacheKey() {
   return [
     "consultassist-sheet",
     SHEET_VERSION,
-    normalizeTopic(els.caseInput.value),
-    ageBand,
+    clinicalTopic(els.caseInput.value),
+    ageBand(),
     els.sex.value,
     els.sheetType.value,
     "nb-no",
@@ -245,10 +270,10 @@ async function generateAiSheet(key) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      age: els.age.value,
+      age: `${ageBand()} år`,
       sex: els.sex.value,
       sheetType: els.sheetType.value,
-      presentation: els.caseInput.value,
+      presentation: sanitizedPresentationForAi(),
       prompt: els.prompt.value,
       cacheKey: key,
       sourceBasis: sourceBasis()
@@ -489,7 +514,7 @@ function assess() {
 function riskText(risk) {
   if (risk === "high") return "Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
   if (risk === "medium") return "Noen usikre eller avvikende svar foreligger. Vurder målrettet undersøkelse, supplerende tester og tydelig sikkerhetsnett.";
-  return "Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+  return "Ingen tydelige røde flagg er registrert i utfylt ark. Kan vente med ordinær oppfølging hvis klinisk helhet støtter det, med symptomregistrering og tydelig sikkerhetsnett.";
 }
 
 function buildReport() {
@@ -510,10 +535,34 @@ Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
 
 Plan:
-${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
+${reportPlanLines().map((line) => `- ${line}`).join("\n")}
 
 Merknad:
-Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+Teksten er beslutningsstøtte. Legen må redigere og kvalitetssikre notatet før det kopieres, eksporteres eller lagres i journal.`;
+}
+
+function reportPlanLines() {
+  const lines = [...state.sheet.followUp];
+  if (state.assessment.risk === "low") {
+    lines.push("Kan vente dersom ingen røde flagg eller forverring: pasienten registrerer symptomdagbok med hyppighet, varighet, utløsere, stillingsendring, væske/mat, søvn/stress, legemidler/rusmidler og ledsagende symptomer frem til avtalt oppfølging.");
+    lines.push("Sikkerhetsnett: ta raskere kontakt ved nye nevrologiske symptomer, synkope/nær-synkope, brystsmerter, tungpust, vedvarende oppkast, feber, hørselstap, sterk ny hodepine eller klar forverring.");
+  }
+  return [...new Set(lines)];
+}
+
+function sanitizedPresentationForAi() {
+  return stripDirectIdentifiers(els.caseInput.value)
+    .replace(/\b\d{1,3}\s*år\b/gi, "[aldersgruppe]")
+    .trim();
+}
+
+function stripDirectIdentifiers(text) {
+  return text
+    .replace(/\b\d{6}\s?\d{5}\b/g, "[fjernet fødselsnummer]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[fjernet e-post]")
+    .replace(/\b(?:\+47\s?)?(?:\d[\s-]?){8,}\b/g, "[fjernet telefon/personnummer]")
+    .replace(/\b(?:navn|pasienten heter|heter)\s*[:=]?\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.'-]+(?:\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.'-]+){0,3}/g, "[fjernet navn]")
+    .replace(/\b(?:adresse|bor i|bor på)\s*[:=]?\s+[^.,;\n]+/gi, "[fjernet adresse]");
 }
 
 async function copyReport() {

@@ -26,7 +26,7 @@ Add these variables in Vercel Project Settings before using AI generation:
 - `SUPABASE_SERVICE_ROLE_KEY`
   - Used server-side only by `api/ai/sheet.js` to read/write the private template cache bucket.
 
-The browser only calls `/api/ai/sheet`. It never receives OpenAI or Supabase service-role credentials.
+The browser only calls `/api/ai/sheet`. It never receives OpenAI or Supabase service-role credentials. Before calling the AI provider, the client sends a coarse age band instead of exact age and strips common direct identifiers from the presenting problem. The server rejects requests that still appear to contain direct identifiers.
 
 ## Supabase Target
 
@@ -45,15 +45,16 @@ Planned buckets:
 
 - `consultassist-sheet-templates`
   - Purpose: reusable generated consultation sheet templates.
-  - Privacy: can be private or service-only; do not store patient-identifiable completed consultations here.
+  - Privacy: can be private or service-only; stores reusable sheet templates only. Do not store patient-identifiable completed consultations, filled-in answers, or journal notes here.
   - Status: created as a private bucket with `application/json` allowed.
-  - Cache key should include complaint/topic, age band, sex when clinically relevant, language, care setting, prompt/schema version, and template version.
+  - Cache key should include a coarse complaint/topic, age band, sex when clinically relevant, language, care setting, prompt/schema version, and template version. It should not include raw presenting-problem text.
 
 - `consultassist-report-exports`
   - Purpose: optional PDF/report export storage if the GP needs saved files beyond local browser download.
   - Privacy: private bucket only.
   - Status: created as a private bucket with PDF, plain text, and JSON allowed.
   - Access should use signed URLs or authenticated access from a trusted server/Edge Function.
+  - Current app behavior: generated reports are editable in the browser and copied/printed locally; they are not uploaded by the current workflow.
 
 Security notes:
 
@@ -69,4 +70,4 @@ Security notes:
 - `styles.css`: responsive interface and print/PDF layout.
 - `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
 
-The current MVP first checks browser localStorage, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase.
+The current MVP first checks browser localStorage for reusable sheet templates, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase. Completed consultation answers and generated journal notes stay in the browser session unless a future privacy decision explicitly enables patient-specific storage.
