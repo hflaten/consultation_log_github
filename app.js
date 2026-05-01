@@ -114,6 +114,7 @@ const els = {
   completionStatus: document.querySelector("#completionStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
   sheetContainer: document.querySelector("#sheetContainer"),
+  outputSection: document.querySelector("#outputSection"),
   summaryPanel: document.querySelector(".summary-panel"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
@@ -208,6 +209,7 @@ async function generateSheet() {
   renderSheet();
   updateCompletion();
   resetReport();
+  scrollToOutputSection();
 }
 
 async function generateAiSheet(key) {
@@ -310,6 +312,7 @@ function assess() {
   const title = risk === "high" ? "Høyere risiko / vurder akutt tiltak" : risk === "medium" ? "Moderat risiko / målrettet oppfølging" : "Lavere risiko ut fra utfylte svar";
 
   state.assessment = { risk, title };
+  els.summaryPanel.className = `summary-panel assessment-card ${risk}`;
   els.risk.className = `risk-panel ${risk}`;
   els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
   els.report.value = buildReport();
@@ -364,6 +367,7 @@ function clearAnswers() {
 }
 
 function resetReport() {
+  els.summaryPanel.className = "summary-panel assessment-card";
   els.risk.className = "risk-panel muted";
   els.risk.textContent = "Fyll ut arket for å lage vurdering.";
   els.report.value = "";
@@ -402,8 +406,12 @@ function updateStickyActionBar() {
 }
 
 function scrollToAssessment() {
-  els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  els.assess.focus({ preventScroll: true });
+  scrollToOutputSection();
+  els.summaryPanel.focus({ preventScroll: true });
+}
+
+function scrollToOutputSection() {
+  els.outputSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function escapeHtml(value) {
