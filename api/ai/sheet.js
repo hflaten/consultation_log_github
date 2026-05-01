@@ -22,6 +22,14 @@ module.exports = async function handler(req, res) {
       return send(res, 200, { sheet: reviewedSheet, cacheHit: true, reviewSaved: true });
     }
 
+    if (action === "lookup") {
+      validateLookupInput(input);
+      const cached = await readCachedSheet(input.cacheKey, input.sourceBasis || input.reviewBasis || null);
+      return cached
+        ? send(res, 200, { sheet: cached, cacheHit: true })
+        : send(res, 404, { cacheHit: false });
+    }
+
     validateInput(input);
 
     const sourceBasis = input.sourceBasis || input.reviewBasis || null;
@@ -86,6 +94,15 @@ function validateReviewInput(input) {
     const error = new Error("Missing reviewer");
     error.statusCode = 400;
     error.publicMessage = "Reviewer is required";
+    throw error;
+  }
+}
+
+function validateLookupInput(input) {
+  if (typeof input.cacheKey !== "string" || input.cacheKey.trim().length === 0) {
+    const error = new Error("Missing cacheKey");
+    error.statusCode = 400;
+    error.publicMessage = "Missing cacheKey";
     throw error;
   }
 }

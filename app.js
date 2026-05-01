@@ -203,6 +203,7 @@ async function generateSheet() {
   const key = cacheKey();
   const cached = localStorage.getItem(key);
   if (cached) {
+    let cacheSource = "lokal cache";
     state.sheet = JSON.parse(cached);
     ensureReviewMetadata(state.sheet, sourceBasis());
     if (!isCurrentSourceBasis(state.sheet.review.sourceBasis, sourceBasis())) {
@@ -210,7 +211,15 @@ async function generateSheet() {
       state.sheet = null;
       return generateSheet();
     }
-    els.cacheStatus.textContent = cacheStatusForSheet(state.sheet, "lokal cache");
+    if (state.sheet.review.status !== "reviewed") {
+      const reviewedSheet = await lookupReviewedSheet(key);
+      if (reviewedSheet) {
+        state.sheet = reviewedSheet;
+        cacheSource = "Supabase cache";
+        localStorage.setItem(key, JSON.stringify(state.sheet));
+      }
+    }
+    els.cacheStatus.textContent = cacheStatusForSheet(state.sheet, cacheSource);
   } else {
     els.generate.disabled = true;
     els.cacheStatus.textContent = "Lager spesialisert ark med AI";
@@ -264,6 +273,32 @@ async function generateAiSheet(key) {
   if (!data.sheet) throw new Error("API response did not contain a sheet");
   els.cacheStatus.textContent = cacheStatusForSheet(data.sheet, data.cacheHit ? "Supabase cache" : "Supabase cache");
   return data.sheet;
+}
+
+async function lookupReviewedSheet(key) {
+  try {
+    const response = await fetch("/api/ai/sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "lookup",
+        cacheKey: key,
+        sourceBasis: sourceBasis()
+      })
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Template lookup failed ${response.status}: ${text.slice(0, 240)}`);
+    }
+
+    const data = await response.json();
+    return data.sheet?.review?.status === "reviewed" ? data.sheet : null;
+  } catch (error) {
+    console.warn("Reviewed template lookup failed:", error);
+    return null;
+  }
 }
 
 function renderSheet() {
@@ -377,10 +412,12 @@ function reviewSummary(review) {
 }
 
 function ensureReviewMetadata(sheet, fallbackBasis) {
+  const reviewedAt = sheet.review?.reviewedAt || sheet.review?.date || null;
   sheet.review = {
     status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
     reviewer: sheet.review?.reviewer || null,
-    reviewedAt: sheet.review?.reviewedAt || null,
+    reviewedAt,
+    date: reviewedAt,
     sourceBasis: sheet.review?.sourceBasis || fallbackBasis,
     version: sheet.review?.version || "review-v1"
   };
@@ -391,6 +428,7 @@ function buildDraftReviewMetadata(basis, source) {
     status: "unreviewed",
     reviewer: null,
     reviewedAt: null,
+    date: null,
     sourceBasis: {
       ...basis,
       generatedSource: source
