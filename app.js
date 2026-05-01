@@ -4,11 +4,6 @@ const SCHEMA_VERSION = "v1";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
-const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
-const SUPABASE_STORAGE_BUCKETS = {
-  sheetTemplates: "consultassist-sheet-templates",
-  reportExports: "consultassist-report-exports"
-};
 
 const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
 
@@ -111,7 +106,6 @@ const els = {
   sex: document.querySelector("#sexInput"),
   sheetType: document.querySelector("#sheetType"),
   caseInput: document.querySelector("#caseInput"),
-  prompt: document.querySelector("#promptInput"),
   generate: document.querySelector("#generateSheet"),
   example: document.querySelector("#loadExample"),
   clear: document.querySelector("#clearSession"),
@@ -139,8 +133,6 @@ const els = {
   stickyViewAssessment: document.querySelector("#stickyViewAssessment"),
   stickyDismiss: document.querySelector("#dismissStickyBar")
 };
-
-els.prompt.value = defaultPrompt;
 
 els.generate.addEventListener("click", generateSheet);
 els.example.addEventListener("click", () => {
@@ -249,7 +241,7 @@ async function generateAiSheet(key) {
       sex: els.sex.value,
       sheetType: els.sheetType.value,
       presentation: els.caseInput.value,
-      prompt: els.prompt.value,
+      prompt: defaultPrompt,
       cacheKey: key,
       sourceBasis: sourceBasis()
     })
@@ -406,7 +398,7 @@ function sourceBasisForSheet(sheet) {
 
 function sourceBasis() {
   return {
-    promptHash: stableHash(els.prompt.value),
+    promptHash: stableHash(defaultPrompt),
     promptVersion: PROMPT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     sourceVersion: SOURCE_VERSION,
@@ -447,11 +439,11 @@ function renderItem(entry) {
 
 function updateCompletion() {
   if (!state.sheet) {
-    els.completionStatus.textContent = "0% utfylt";
+    els.completionStatus.textContent = "Ingen svar registrert";
     els.assess.disabled = true;
     els.assess.hidden = true;
     els.stickyCount.textContent = "0 / 0 spørsmål besvart";
-    els.stickyPercent.textContent = "0% utfylt";
+    els.stickyPercent.textContent = "0%";
     els.stickyAssess.disabled = true;
     els.stickyAssess.hidden = true;
     updateStickyActionBar();
@@ -459,11 +451,11 @@ function updateCompletion() {
   }
   const { completed, total, percent } = getCompletion();
   const hasStartedAnswers = completed > 0;
-  els.completionStatus.textContent = `${percent}% utfylt`;
+  els.completionStatus.textContent = `${completed} / ${total} svar registrert (${percent}%)`;
   els.assess.hidden = !hasStartedAnswers;
   els.assess.disabled = !hasStartedAnswers;
   els.stickyCount.textContent = `${completed} / ${total} spørsmål besvart`;
-  els.stickyPercent.textContent = `${percent}% utfylt`;
+  els.stickyPercent.textContent = `${percent}%`;
   els.stickyAssess.hidden = !hasStartedAnswers;
   els.stickyAssess.disabled = els.assess.disabled;
   updateStickyActionBar();

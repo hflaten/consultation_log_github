@@ -247,23 +247,6 @@ textarea {
   margin-bottom: 14px;
 }
 
-.prompt-box {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  margin-bottom: 14px;
-  padding: 12px;
-}
-
-.prompt-box summary {
-  color: var(--primary-strong);
-  cursor: pointer;
-  font-weight: 800;
-}
-
-.prompt-box textarea {
-  margin-top: 12px;
-}
-
 .actions,
 .report-actions {
   display: flex;
@@ -422,7 +405,8 @@ textarea {
 
 .item-title span {
   color: var(--muted);
-  font-size: 0.82rem;
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .button-row {

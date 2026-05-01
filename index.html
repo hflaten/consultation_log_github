@@ -15,9 +15,9 @@
             <h1>Konsultasjonsark for fastlege</h1>
           </div>
           <div class="status-strip" aria-live="polite">
-            <span id="cacheStatus">Klar</span>
+            <span id="cacheStatus">Ark ikke generert</span>
             <span id="reviewStatus">Ikke vurdert</span>
-            <span id="completionStatus">0% utfylt</span>
+            <span id="completionStatus">Ingen svar registrert</span>
           </div>
         </header>
 
@@ -70,11 +70,6 @@
             Presenterende problemstilling
             <textarea id="caseInput" rows="4">Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.</textarea>
           </label>
-
-          <details class="prompt-box">
-            <summary>Prompt som forklarer hvilken type ark legen trenger</summary>
-            <textarea id="promptInput" rows="10"></textarea>
-          </details>
 
           <div class="actions">
             <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
@@ -132,7 +127,7 @@
     <aside id="stickyActionBar" class="sticky-action-bar" aria-label="Hurtighandlinger for konsultasjonsarket" aria-hidden="true">
       <div class="sticky-progress">
         <span id="stickyCompletionCount">0 / 0 spørsmål besvart</span>
-        <strong id="stickyCompletionPercent">0% utfylt</strong>
+        <strong id="stickyCompletionPercent">0%</strong>
       </div>
       <div class="sticky-actions">
         <button id="stickyViewAssessment" class="secondary-button" type="button" hidden>Vis vurdering</button>
