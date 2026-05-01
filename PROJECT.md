@@ -1,6 +1,6 @@
 # ConsultAssist
 
-Static GP consultation-sheet website intended for deployment to here.now.
+Static GP consultation-sheet website intended for deployment to Vercel.
 
 ## Source Repository
 
@@ -8,19 +8,26 @@ Static GP consultation-sheet website intended for deployment to here.now.
 
 ## Hosting Target
 
-- here.now
-- Live site: https://spruce-ledger-n4kv.here.now/
-- Status: authenticated/permanent here.now site.
+- Vercel
+- Project: `custombase/consultassist`
+- Production URL: https://consultassist.vercel.app
+- Deployment URL: https://consultassist-7yqbpcnyg-custombase.vercel.app
+- Inspect URL: https://vercel.com/custombase/consultassist/HPhRwPjrbb4R4qLHxumhptgHJzfD
+- Status: deployed to Vercel and connected to GitHub.
+- Previous here.now preview: https://spruce-ledger-n4kv.here.now/
 
-## here.now Variables To Add Manually
+## Vercel Environment Variables To Add Manually
 
-Add this variable in the here.now dashboard before using AI generation:
+Add these variables in Vercel Project Settings before using AI generation:
 
 - `OPENAI_API_KEY`
-  - Allowed upstream: `api.openai.com`
-  - Used by `.herenow/proxy.json` for `/api/ai/sheet`
+  - Used by `api/ai/sheet.js` to generate specialized sheets.
+- `SUPABASE_URL`
+  - Value: `https://tnklkqcmzxwnvhnbgsay.supabase.co`
+- `SUPABASE_SERVICE_ROLE_KEY`
+  - Used server-side only by `api/ai/sheet.js` to read/write the private template cache bucket.
 
-The proxy route injects the OpenAI key server-side. The browser only calls `/api/ai/sheet`.
+The browser only calls `/api/ai/sheet`. It never receives OpenAI or Supabase service-role credentials.
 
 ## Supabase Target
 
@@ -52,10 +59,10 @@ Planned buckets:
 Security notes:
 
 - Never expose Supabase service role keys in the static frontend.
-- Prefer a here.now proxy route or Supabase Edge Function for model calls, writes, signed URLs, and private storage operations.
+- Prefer a Vercel Function or Supabase Edge Function for model calls, writes, signed URLs, and private storage operations.
 - Supabase Storage buckets are private by default; public buckets make files accessible to anyone with the URL.
 - Storage uploads require RLS policies. Upsert requires insert, select, and update permissions.
-- Supabase-backed shared template caching is not enabled yet because anonymous write/update policies would make the non-PHI template bucket publicly writable. Use a controlled server function or explicitly approve that public cache model before wiring it live.
+- Supabase-backed shared template caching is wired through the Vercel Function, not anonymous storage policies.
 
 ## Current MVP
 
@@ -63,4 +70,4 @@ Security notes:
 - `styles.css`: responsive interface and print/PDF layout.
 - `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
 
-The current MVP uses browser localStorage for reusable template caching. It now calls OpenAI through here.now when `OPENAI_API_KEY` is configured, then stores generated reusable sheet templates locally. Supabase should replace or supplement that cache when a controlled server-side cache layer is added.
+The current MVP first checks browser localStorage, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase.

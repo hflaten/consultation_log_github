@@ -1,2 +1,4 @@
-.herenow/state.json
+.herenow/
+.vercel/
 .DS_Store
+.vercel
