@@ -265,6 +265,18 @@ textarea {
   grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
 }
 
+.sheet-layout.is-consultation-mode {
+  grid-template-columns: 1fr;
+}
+
+.sheet-layout.is-consultation-mode .sheet-panel {
+  order: 1;
+}
+
+.sheet-layout.is-consultation-mode .summary-panel {
+  order: 2;
+}
+
 .wide-button {
   margin-top: 14px;
   width: 100%;

@@ -99,6 +99,7 @@ const state = {
 };
 
 const els = {
+  sheetLayout: document.querySelector("#sheetLayout"),
   inputPanel: document.querySelector("#setupPanel"),
   setupForm: document.querySelector("#setupForm"),
   setupSummary: document.querySelector("#setupSummary"),
@@ -256,9 +257,11 @@ function renderSheet() {
 function setSetupCollapsed(isCollapsed) {
   state.setupCollapsed = Boolean(isCollapsed && state.sheet);
   els.inputPanel.classList.toggle("is-collapsed", state.setupCollapsed);
+  els.sheetLayout.classList.toggle("is-consultation-mode", state.setupCollapsed);
   els.setupForm.hidden = state.setupCollapsed;
   els.setupSummary.hidden = !state.setupCollapsed;
   els.inputPanel.setAttribute("aria-expanded", String(!state.setupCollapsed));
+  els.editSetup.setAttribute("aria-expanded", String(!state.setupCollapsed));
 
   if (state.setupCollapsed) {
     els.setupSummaryText.textContent = setupSummaryText();
