@@ -314,6 +314,38 @@ textarea {
   color: var(--red);
 }
 
+.risk-panel p {
+  margin: 8px 0;
+}
+
+.risk-panel ul {
+  margin: 8px 0 14px;
+  padding-left: 20px;
+}
+
+.triage-categories {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.triage-category {
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid currentColor;
+  border-radius: 7px;
+  opacity: 0.72;
+  padding: 10px;
+}
+
+.triage-category.active {
+  background: rgba(255, 255, 255, 0.92);
+  opacity: 1;
+}
+
+.triage-category strong {
+  display: block;
+}
+
 .review-banner {
   border-radius: 8px;
   display: flex;
