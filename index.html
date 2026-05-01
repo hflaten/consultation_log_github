@@ -29,6 +29,7 @@
               <li><strong>2. Fyll ut arket under konsultasjonen.</strong></li>
               <li><strong>3. Få klinisk vurdering og røde flagg.</strong></li>
             </ol>
+            <p class="clinician-control">Legen styrer vurdering og tiltak. Unngå direkte identifikatorer i fritekst; rapporten kan redigeres før kopiering eller PDF.</p>
           </div>
           <button id="dismissFlowHint" class="ghost-button" type="button">Skjul</button>
         </section>
@@ -37,7 +38,7 @@
           <div class="panel-head">
             <div>
               <h2 id="case-heading">Pasient og problemstilling</h2>
-              <p>Beskriv konsultasjonen. Arket hentes fra cache når samme type finnes.</p>
+              <p>Beskriv konsultasjonen uten navn, fødselsnummer eller kontaktinfo. Kun gjenbrukbare arkmaler caches.</p>
             </div>
             <button id="loadExample" class="ghost-button" type="button">Eksempel</button>
           </div>
@@ -109,7 +110,7 @@
           <div class="panel-head">
             <div>
               <h2 id="report-heading">Journalnotat</h2>
-              <p>Kopier teksten eller bruk utskrift/PDF fra nettleseren.</p>
+              <p>Rediger og kvalitetssikre teksten før den kopieres eller eksporteres. Notatet lagres ikke i cache.</p>
             </div>
             <div class="report-actions">
               <button id="copyReport" class="secondary-button" type="button" disabled>Kopier</button>

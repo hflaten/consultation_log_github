@@ -1,4 +1,4 @@
-const SHEET_VERSION = "v1";
+const SHEET_VERSION = "v2";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
 const SUPABASE_STORAGE_BUCKETS = {
@@ -29,7 +29,29 @@ Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
+- Ikke inkluder navn, fødselsnummer, telefon, e-post eller andre direkte pasientidentifikatorer.
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
+
+const TOPIC_RULES = [
+  ["svimmelhet", /svimmel|vertigo|ustø/],
+  ["brystsmerter", /bryst|thorax|angina|hjerte/],
+  ["tungpust", /tungpust|dyspn|pust/],
+  ["hodepine", /hodepine|migrene/],
+  ["magesmerter", /mage|abdomen|kvalme|oppkast/],
+  ["feber-infeksjon", /feber|infeksjon|sår hals|hoste/],
+  ["hoste-luftvei", /hoste|luftvei|astma|kols/],
+  ["urinveier", /urin|dysuri|cystitt|nyre/],
+  ["hud", /hud|utslett|eksem|sår/],
+  ["muskel-skjelett", /rygg|nakke|skulder|kne|ledd|muskel/],
+  ["psykisk-helse", /angst|depresjon|søvn|stress|psyk/]
+];
+
+const DIRECT_IDENTIFIER_PATTERNS = [
+  /\b\d{11}\b/g,
+  /\b\d{6}\s?\d{5}\b/g,
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,
+  /(?:\+47\s?)?(?:\d\s?){8}\b/g
+];
 
 const dizzinessTemplate = {
   title: "Svimmelhet - minimumsliste",
@@ -170,18 +192,33 @@ function item(id, label, why, buttons, placeholder) {
 
 function normalizeTopic(text) {
   const lower = text.toLowerCase();
-  if (lower.includes("svimmel") || lower.includes("vertigo")) return "svimmelhet";
-  return lower.split(/[.,\n]/)[0].replace(/[^a-zæøå0-9 ]/gi, "").trim().slice(0, 60) || "generelt";
+  const match = TOPIC_RULES.find(([, pattern]) => pattern.test(lower));
+  return match ? match[0] : "generelt";
+}
+
+function sanitizeClinicalPresentation(text) {
+  let sanitized = text.trim();
+  DIRECT_IDENTIFIER_PATTERNS.forEach((pattern) => {
+    sanitized = sanitized.replace(pattern, "[fjernet identifikator]");
+  });
+  return sanitized
+    .replace(/\b(navn|pasientnavn|fødselsnummer|personnummer|telefon|e-post)\s*[:=]\s*[^\n,;.]+/gi, "[fjernet identifikator]")
+    .slice(0, 3000);
+}
+
+function ageBand(value) {
+  const age = Number.parseInt(value, 10);
+  if (!Number.isFinite(age)) return "ukjent";
+  const lower = Math.floor(age / 10) * 10;
+  return `${lower}-${lower + 9}`;
 }
 
 function cacheKey() {
-  const age = Number.parseInt(els.age.value, 10);
-  const ageBand = Number.isFinite(age) ? `${Math.floor(age / 10) * 10}-${Math.floor(age / 10) * 10 + 9}` : "ukjent";
   return [
     "consultassist-sheet",
     SHEET_VERSION,
     normalizeTopic(els.caseInput.value),
-    ageBand,
+    ageBand(els.age.value),
     els.sex.value,
     els.sheetType.value,
     "nb-no",
@@ -225,14 +262,15 @@ async function generateSheet() {
 }
 
 async function generateAiSheet(key) {
+  const sanitizedPresentation = sanitizeClinicalPresentation(els.caseInput.value);
   const response = await fetch("/api/ai/sheet", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      age: els.age.value,
+      age: ageBand(els.age.value),
       sex: els.sex.value,
       sheetType: els.sheetType.value,
-      presentation: els.caseInput.value,
+      presentation: sanitizedPresentation,
       prompt: els.prompt.value,
       cacheKey: key
     })
@@ -341,7 +379,19 @@ function assess() {
 function riskText(risk) {
   if (risk === "high") return "Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
   if (risk === "medium") return "Noen usikre eller avvikende svar foreligger. Vurder målrettet undersøkelse, supplerende tester og tydelig sikkerhetsnett.";
-  return "Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+  return "Kan vente dersom legen vurderer pasienten som stabil og uten røde flagg. Avtal registrering/symptomdagbok og tydelig sikkerhetsnett.";
+}
+
+function planLinesForAssessment() {
+  const basePlan = state.sheet.followUp;
+  if (!state.assessment || state.assessment.risk !== "low") return basePlan;
+
+  return [
+    "Kan vente ved stabil pasient uten røde flagg etter legens vurdering.",
+    "Be pasienten registrere symptomer, utløsende faktorer, varighet, egenmålinger og effekt av tiltak i dagbok frem til kontroll.",
+    "Sikkerhetsnett: ta kontakt raskt/legevakt ved forverring, nye røde flagg eller betydelig funksjonsfall.",
+    ...basePlan
+  ];
 }
 
 function buildReport() {
@@ -362,7 +412,7 @@ Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
 
 Plan:
-${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
+${planLinesForAssessment().map((line) => `- ${line}`).join("\n")}
 
 Merknad:
 Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
