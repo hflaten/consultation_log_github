@@ -1,9 +1,10 @@
 const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
-const SCHEMA_VERSION = "v1";
+const PROMPT_VERSION = "v2";
+const SCHEMA_VERSION = "v2";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
+const ANSWER_SESSION_PREFIX = "consultassist-session-answers";
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
 const SUPABASE_STORAGE_BUCKETS = {
   sheetTemplates: "consultassist-sheet-templates",
@@ -24,7 +25,8 @@ Output som JSON:
 - clinical_goal
 - red_flags: korte punkter
 - questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder }
-- examinations: liste med { id, label, answer_buttons, free_text_placeholder }
+- mustDoExaminations: realistisk liste over undersøkelser som bør gjøres i konsultasjonen, med { id, label, why, resultOptions, notePlaceholder }
+- optionalExaminations: supplerende undersøkelser ved indikasjon, med { id, label, why, resultOptions, notePlaceholder }
 - initial_assessment_rules: kort veiledning for alvorlighetsgrad
 - follow_up_options: anbefalte neste steg
 - journal_note_template: struktur for ferdig journalnotat
@@ -32,6 +34,8 @@ Output som JSON:
 Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
+- Hver undersøkelse skal ha kort klinisk formål, valgbare resultatknapper og et fritekstnotat.
+- Hold undersøkelseslisten realistisk for en 15-minutters fastlegekonsultasjon. Prioriter få må-gjøre-punkter og legg bare relevante tillegg under valgfrie undersøkelser.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
 
@@ -53,10 +57,12 @@ const dizzinessTemplate = {
     item("q6", "Øre-/infeksjonssymptomer", "Hørselstap, tinnitus og infeksjon påvirker vurdering og tiltak.", ["Ingen", "Tinnitus", "Hørselstap", "Infeksjon"], "Øresmerter, feber, nylig luftveisinfeksjon."),
     item("q7", "Legemidler og rusmidler", "Bivirkninger og blodtrykksfall er vanlige reversible årsaker.", ["Ingen relevante", "Mulig relevant", "Usikkert"], "Nye medisiner, antihypertensiva, alkohol, andre rusmidler.")
   ],
-  examinations: [
+  mustDoExaminations: [
     item("e1", "Allmenntilstand og vitale parametre", "Fanger akutt sykdom og sirkulatorisk påvirkning.", ["Upåfallende", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2, respirasjon."),
     item("e2", "Ortostatisk blodtrykk", "Vurderer ortostatisk hypotensjon.", ["Normal", "Patologisk", "Ikke utført"], "Liggende/stående BT og puls."),
-    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange."),
+    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange.")
+  ],
+  optionalExaminations: [
     item("e4", "Ørestatus og nystagmus", "Støtter perifer vestibulær vurdering.", ["Normal", "Avvik", "Ikke utført"], "Otoskopi, spontan-/blikkretningsnystagmus."),
     item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon."),
     item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.")
@@ -84,9 +90,11 @@ const genericTemplate = {
     item("q4", "Tidligere sykdom og risiko", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Relevant", "Usikkert"], "Komorbiditet, familiehistorie, graviditet, immunsuppresjon."),
     item("q5", "Legemidler og tiltak forsøkt", "Avklarer bivirkninger og effekt av egenbehandling.", ["Ingen", "Noe effekt", "Ingen effekt", "Bivirkning"], "Medikamenter, naturmidler, egenbehandling.")
   ],
-  examinations: [
+  mustDoExaminations: [
     item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov."),
-    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn."),
+    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn.")
+  ],
+  optionalExaminations: [
     item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.")
   ],
   followUp: [
@@ -203,7 +211,7 @@ async function generateSheet() {
   const key = cacheKey();
   const cached = localStorage.getItem(key);
   if (cached) {
-    state.sheet = JSON.parse(cached);
+    state.sheet = normalizeSheetShape(JSON.parse(cached));
     ensureReviewMetadata(state.sheet, sourceBasis());
     if (!isCurrentSourceBasis(state.sheet.review.sourceBasis, sourceBasis())) {
       localStorage.removeItem(key);
@@ -215,12 +223,12 @@ async function generateSheet() {
     els.generate.disabled = true;
     els.cacheStatus.textContent = "Lager spesialisert ark med AI";
     try {
-      state.sheet = await generateAiSheet(key);
+      state.sheet = normalizeSheetShape(await generateAiSheet(key));
       localStorage.setItem(key, JSON.stringify(state.sheet));
     } catch (error) {
       console.warn("AI generation failed, using local fallback:", error);
       const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
-      state.sheet = structuredClone(base);
+      state.sheet = normalizeSheetShape(structuredClone(base));
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
@@ -231,7 +239,7 @@ async function generateSheet() {
       els.generate.disabled = false;
     }
   }
-  state.answers = {};
+  state.answers = loadSessionAnswers(key);
   state.assessment = null;
   state.stickyDismissed = false;
   renderSheet();
@@ -263,7 +271,7 @@ async function generateAiSheet(key) {
   const data = await response.json();
   if (!data.sheet) throw new Error("API response did not contain a sheet");
   els.cacheStatus.textContent = cacheStatusForSheet(data.sheet, data.cacheHit ? "Supabase cache" : "Supabase cache");
-  return data.sheet;
+  return normalizeSheetShape(data.sheet);
 }
 
 function renderSheet() {
@@ -273,14 +281,18 @@ function renderSheet() {
   els.sheetContainer.className = "";
   els.sheetContainer.innerHTML = [
     renderSection("Spørsmål", sheet.questions),
-    renderSection("Undersøkelser", sheet.examinations)
+    renderSection("Må gjøres - undersøkelser", sheet.mustDoExaminations, "must-do"),
+    renderSection("Valgfrie undersøkelser ved indikasjon", sheet.optionalExaminations, "optional")
   ].join("");
 
   document.querySelectorAll(".answer-button").forEach((button) => {
+    const answer = state.answers[button.dataset.id] || {};
+    button.classList.toggle("active", answer.choice === button.dataset.value);
     button.addEventListener("click", () => {
       const id = button.dataset.id;
       state.answers[id] = state.answers[id] || {};
       state.answers[id].choice = button.dataset.value;
+      saveSessionAnswers();
       document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
         candidate.classList.toggle("active", candidate === button);
       });
@@ -289,10 +301,12 @@ function renderSheet() {
   });
 
   document.querySelectorAll(".free-text").forEach((input) => {
+    input.value = state.answers[input.dataset.id]?.text || "";
     input.addEventListener("input", () => {
       const id = input.dataset.id;
       state.answers[id] = state.answers[id] || {};
       state.answers[id].text = input.value.trim();
+      saveSessionAnswers();
       updateCompletion();
     });
   });
@@ -428,20 +442,23 @@ function stableHash(text) {
   return Math.abs(hash).toString(36);
 }
 
-function renderSection(title, items) {
-  return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
+function renderSection(title, items, variant = "") {
+  const classes = ["sheet-section", variant ? `sheet-section-${variant}` : ""].filter(Boolean).join(" ");
+  if (!items.length) return "";
+  return `<div class="${classes}"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
 }
 
 function renderItem(entry) {
+  const buttons = Array.isArray(entry.buttons) ? entry.buttons : [];
   return `<article class="item-card">
     <div class="item-title">
       <strong>${escapeHtml(entry.label)}</strong>
       <span>${escapeHtml(entry.why)}</span>
     </div>
     <div class="button-row">
-      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
+      ${buttons.map((button) => `<button class="answer-button" type="button" data-id="${escapeHtml(entry.id)}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
     </div>
-    <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
+    <input class="free-text" data-id="${escapeHtml(entry.id)}" placeholder="${escapeHtml(entry.placeholder)}">
   </article>`;
 }
 
@@ -493,18 +510,26 @@ function riskText(risk) {
 }
 
 function buildReport() {
-  const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
+  const questionEntries = state.sheet.questions.map((entry) => {
     const answer = state.answers[entry.id] || {};
     return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
   }).join("\n");
+  const examinationEntries = allExaminations().map((entry) => {
+    const answer = state.answers[entry.id] || {};
+    const result = [answer.choice, answer.text].filter(Boolean).join(". ");
+    return result ? `- ${entry.label}: ${result}` : null;
+  }).filter(Boolean).join("\n") || "- Ingen undersøkelsesresultater valgt.";
 
   return `Journalnotat - ${state.sheet.title}
 
 Problemstilling:
 ${els.caseInput.value.trim()}
 
-Opplysninger og funn:
-${entries}
+Anamnese:
+${questionEntries}
+
+Undersøkelser:
+${examinationEntries}
 
 Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
@@ -525,6 +550,7 @@ function clearAnswers() {
   state.answers = {};
   state.assessment = null;
   state.stickyDismissed = false;
+  clearSessionAnswers();
   if (state.sheet) renderSheet();
   updateCompletion();
   resetReport();
@@ -540,7 +566,7 @@ function resetReport() {
 }
 
 function getCompletion() {
-  const allItems = state.sheet ? [...state.sheet.questions, ...state.sheet.examinations] : [];
+  const allItems = state.sheet ? [...state.sheet.questions, ...allExaminations()] : [];
   const completed = allItems.filter((entry) => {
     const answer = state.answers[entry.id];
     return answer && (answer.choice || answer.text);
@@ -551,6 +577,62 @@ function getCompletion() {
     total: allItems.length,
     percent: allItems.length ? Math.round((completed / allItems.length) * 100) : 0
   };
+}
+
+function normalizeSheetShape(sheet) {
+  const legacyExaminations = Array.isArray(sheet.examinations) ? sheet.examinations : [];
+  const mustDoExaminations = Array.isArray(sheet.mustDoExaminations) && sheet.mustDoExaminations.length
+    ? sheet.mustDoExaminations
+    : legacyExaminations;
+  const optionalExaminations = Array.isArray(sheet.optionalExaminations) ? sheet.optionalExaminations : [];
+
+  return {
+    ...sheet,
+    questions: normalizeItems(sheet.questions, "q"),
+    mustDoExaminations: normalizeItems(mustDoExaminations, "e"),
+    optionalExaminations: normalizeItems(optionalExaminations, "oe")
+  };
+}
+
+function normalizeItems(items, prefix) {
+  return Array.isArray(items)
+    ? items.map((entry, index) => item(
+      entry.id || `${prefix}${index + 1}`,
+      entry.label || "",
+      entry.why || entry.why_it_matters || "",
+      entry.buttons || entry.answer_buttons || entry.resultOptions || [],
+      entry.placeholder || entry.free_text_placeholder || entry.notePlaceholder || ""
+    ))
+    : [];
+}
+
+function allExaminations() {
+  if (!state.sheet) return [];
+  return [...state.sheet.mustDoExaminations, ...state.sheet.optionalExaminations];
+}
+
+function answersStorageKey(key = state.sheet?.cacheKey || cacheKey()) {
+  return `${ANSWER_SESSION_PREFIX}:${key}`;
+}
+
+function loadSessionAnswers(key) {
+  try {
+    const stored = sessionStorage.getItem(answersStorageKey(key));
+    return stored ? JSON.parse(stored) : {};
+  } catch (error) {
+    console.warn("Could not load session answers:", error);
+    return {};
+  }
+}
+
+function saveSessionAnswers() {
+  if (!state.sheet) return;
+  sessionStorage.setItem(answersStorageKey(), JSON.stringify(state.answers));
+}
+
+function clearSessionAnswers() {
+  if (!state.sheet) return;
+  sessionStorage.removeItem(answersStorageKey());
 }
 
 function updateStickyPosition() {
