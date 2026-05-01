@@ -9,7 +9,18 @@ Static GP consultation-sheet website intended for deployment to here.now.
 ## Hosting Target
 
 - here.now
-- Status: local MVP exists, but publishing is blocked in this session by network/usage-limit restrictions.
+- Live site: https://spruce-ledger-n4kv.here.now/
+- Status: authenticated/permanent here.now site.
+
+## here.now Variables To Add Manually
+
+Add this variable in the here.now dashboard before using AI generation:
+
+- `OPENAI_API_KEY`
+  - Allowed upstream: `api.openai.com`
+  - Used by `.herenow/proxy.json` for `/api/ai/sheet`
+
+The proxy route injects the OpenAI key server-side. The browser only calls `/api/ai/sheet`.
 
 ## Supabase Target
 
@@ -44,6 +55,7 @@ Security notes:
 - Prefer a here.now proxy route or Supabase Edge Function for model calls, writes, signed URLs, and private storage operations.
 - Supabase Storage buckets are private by default; public buckets make files accessible to anyone with the URL.
 - Storage uploads require RLS policies. Upsert requires insert, select, and update permissions.
+- Supabase-backed shared template caching is not enabled yet because anonymous write/update policies would make the non-PHI template bucket publicly writable. Use a controlled server function or explicitly approve that public cache model before wiring it live.
 
 ## Current MVP
 
@@ -51,4 +63,4 @@ Security notes:
 - `styles.css`: responsive interface and print/PDF layout.
 - `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
 
-The current MVP uses browser localStorage for reusable template caching as a no-backend placeholder. Supabase should replace or supplement that cache when the server-side/proxy layer is added.
+The current MVP uses browser localStorage for reusable template caching. It now calls OpenAI through here.now when `OPENAI_API_KEY` is configured, then stores generated reusable sheet templates locally. Supabase should replace or supplement that cache when a controlled server-side cache layer is added.

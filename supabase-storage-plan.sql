@@ -38,3 +38,9 @@ set
 -- Policies should be added once the final access model is chosen.
 -- For a static site, writes and signed URLs should go through a trusted
 -- server-side layer such as a here.now proxy route or Supabase Edge Function.
+--
+-- Do not add broad anon write/update policies for report exports.
+-- If you choose to make the reusable template cache publicly readable/writable
+-- because templates contain no patient-specific information, add only
+-- bucket-scoped policies for `consultassist-sheet-templates` and document
+-- the abuse/cost tradeoff first.

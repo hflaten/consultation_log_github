@@ -1,0 +1,12 @@
+{
+  "proxies": {
+    "/api/ai/sheet": {
+      "upstream": "https://api.openai.com/v1/responses",
+      "method": "POST",
+      "rateLimit": "20/hour/ip",
+      "headers": {
+        "Authorization": "Bearer ${OPENAI_API_KEY}"
+      }
+    }
+  }
+}

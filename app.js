@@ -4,6 +4,7 @@ const SUPABASE_STORAGE_BUCKETS = {
   sheetTemplates: "consultassist-sheet-templates",
   reportExports: "consultassist-report-exports"
 };
+const OPENAI_MODEL = "gpt-5.2";
 
 const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
 
@@ -156,25 +157,177 @@ function cacheKey() {
   ].join(":");
 }
 
-function generateSheet() {
+async function generateSheet() {
   const key = cacheKey();
   const cached = localStorage.getItem(key);
   if (cached) {
     state.sheet = JSON.parse(cached);
     els.cacheStatus.textContent = "Hentet fra cache";
   } else {
-    const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
-    state.sheet = structuredClone(base);
-    state.sheet.cacheKey = key;
-    state.sheet.createdAt = new Date().toISOString();
-    localStorage.setItem(key, JSON.stringify(state.sheet));
-    els.cacheStatus.textContent = "Nytt ark lagret i cache";
+    els.generate.disabled = true;
+    els.cacheStatus.textContent = "Lager spesialisert ark med AI";
+    try {
+      state.sheet = await generateAiSheet(key);
+      localStorage.setItem(key, JSON.stringify(state.sheet));
+      els.cacheStatus.textContent = "AI-ark lagret i lokal cache";
+    } catch (error) {
+      console.warn("AI generation failed, using local fallback:", error);
+      const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
+      state.sheet = structuredClone(base);
+      state.sheet.cacheKey = key;
+      state.sheet.createdAt = new Date().toISOString();
+      state.sheet.source = "local_fallback";
+      localStorage.setItem(key, JSON.stringify(state.sheet));
+      els.cacheStatus.textContent = "AI utilgjengelig - lokal fallback brukt";
+    } finally {
+      els.generate.disabled = false;
+    }
   }
   state.answers = {};
   state.assessment = null;
   renderSheet();
   updateCompletion();
   resetReport();
+}
+
+async function generateAiSheet(key) {
+  const body = {
+    model: OPENAI_MODEL,
+    max_output_tokens: 3500,
+    instructions: [
+      "Du lager strukturerte konsultasjonsark for fastleger i Norge.",
+      "Svar kun med JSON som matcher skjemaet.",
+      "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
+      "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
+      "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+    ].join(" "),
+    input: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "input_text",
+            text: JSON.stringify({
+              age: els.age.value,
+              sex: els.sex.value,
+              sheetType: els.sheetType.value,
+              careSetting: "fastlegekontor i Norge",
+              language: "nb-NO",
+              presentation: els.caseInput.value,
+              prompt: els.prompt.value,
+              cacheKey: key
+            })
+          }
+        ]
+      }
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "consultassist_sheet",
+        strict: true,
+        schema: sheetJsonSchema()
+      }
+    }
+  };
+
+  const response = await fetch("/api/ai/sheet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`AI request failed ${response.status}: ${text.slice(0, 240)}`);
+  }
+
+  const data = await response.json();
+  const parsed = parseResponseJson(data);
+  return normalizeAiSheet(parsed, key);
+}
+
+function parseResponseJson(data) {
+  if (typeof data.output_text === "string") {
+    return JSON.parse(data.output_text);
+  }
+
+  const text = data.output
+    ?.flatMap((item) => item.content || [])
+    ?.filter((part) => part.type === "output_text" && typeof part.text === "string")
+    ?.map((part) => part.text)
+    ?.join("");
+
+  if (!text) throw new Error("AI response did not contain output_text");
+  return JSON.parse(text);
+}
+
+function normalizeAiSheet(sheet, key) {
+  return {
+    title: sheet.title,
+    goal: sheet.goal,
+    redFlags: sheet.redFlags,
+    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    followUp: sheet.followUp,
+    cacheKey: key,
+    createdAt: new Date().toISOString(),
+    source: "openai"
+  };
+}
+
+function sheetJsonSchema() {
+  const option = {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "label", "why", "buttons", "placeholder"],
+    properties: {
+      id: { type: "string" },
+      label: { type: "string" },
+      why: { type: "string" },
+      buttons: {
+        type: "array",
+        minItems: 2,
+        maxItems: 5,
+        items: { type: "string" }
+      },
+      placeholder: { type: "string" }
+    }
+  };
+
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["title", "goal", "redFlags", "questions", "examinations", "followUp"],
+    properties: {
+      title: { type: "string" },
+      goal: { type: "string" },
+      redFlags: {
+        type: "array",
+        minItems: 3,
+        maxItems: 8,
+        items: { type: "string" }
+      },
+      questions: {
+        type: "array",
+        minItems: 5,
+        maxItems: 12,
+        items: option
+      },
+      examinations: {
+        type: "array",
+        minItems: 3,
+        maxItems: 10,
+        items: option
+      },
+      followUp: {
+        type: "array",
+        minItems: 3,
+        maxItems: 8,
+        items: { type: "string" }
+      }
+    }
+  };
 }
 
 function renderSheet() {
