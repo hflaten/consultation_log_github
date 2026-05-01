@@ -24,12 +24,13 @@ module.exports = async function handler(req, res) {
 
     validateInput(input);
 
-    const cached = await readCachedSheet(input.cacheKey, input.reviewBasis);
+    const sourceBasis = input.sourceBasis || input.reviewBasis || null;
+    const cached = await readCachedSheet(input.cacheKey, sourceBasis);
     if (cached) {
       return send(res, 200, { sheet: cached, cacheHit: true });
     }
 
-    const sheet = await generateSheet(input);
+    const sheet = await generateSheet({ ...input, sourceBasis });
     await writeCachedSheet(input.cacheKey, sheet, DRAFT_PREFIX);
 
     return send(res, 200, { sheet, cacheHit: false });
@@ -89,7 +90,7 @@ function validateReviewInput(input) {
   }
 }
 
-async function readCachedSheet(cacheKey, reviewBasis) {
+async function readCachedSheet(cacheKey, sourceBasis) {
   if (!hasSupabaseEnv()) return null;
 
   for (const prefix of [REVIEWED_PREFIX, DRAFT_PREFIX, null]) {
@@ -104,8 +105,8 @@ async function readCachedSheet(cacheKey, reviewBasis) {
       continue;
     }
 
-    const sheet = normalizeCachedSheet(await response.json(), cacheKey, reviewBasis);
-    if (isCurrentReviewBasis(sheet.review?.sourceBasis, reviewBasis)) return sheet;
+    const sheet = normalizeCachedSheet(await response.json(), cacheKey);
+    if (isCurrentSourceBasis(sheet.review?.sourceBasis, sourceBasis)) return sheet;
   }
 
   return null;
@@ -215,7 +216,7 @@ async function generateSheet(input) {
 
   const data = await response.json();
   const parsed = parseResponseJson(data);
-  return normalizeAiSheet(parsed, input.cacheKey, input.reviewBasis);
+  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis);
 }
 
 function parseResponseJson(data) {
@@ -233,7 +234,7 @@ function parseResponseJson(data) {
   return JSON.parse(text);
 }
 
-function normalizeAiSheet(sheet, cacheKey, reviewBasis) {
+function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
   return {
     title: sheet.title,
     goal: sheet.goal,
@@ -248,12 +249,12 @@ function normalizeAiSheet(sheet, cacheKey, reviewBasis) {
       status: "unreviewed",
       reviewer: null,
       reviewedAt: null,
-      sourceBasis: reviewBasis
+      sourceBasis
     })
   };
 }
 
-function normalizeCachedSheet(sheet, cacheKey, reviewBasis) {
+function normalizeCachedSheet(sheet, cacheKey) {
   return {
     ...sheet,
     cacheKey: sheet.cacheKey || cacheKey,
@@ -283,7 +284,7 @@ function markSheetReviewed(sheet, input) {
       status: "reviewed",
       reviewer: input.reviewer.trim(),
       reviewedAt,
-      sourceBasis: input.reviewBasis || sheet.review?.sourceBasis || null
+      sourceBasis: input.sourceBasis || input.reviewBasis || sheet.review?.sourceBasis || null
     })
   };
 }
@@ -299,8 +300,9 @@ function createReviewMetadata({ status, reviewer, reviewedAt, sourceBasis }) {
   };
 }
 
-function isCurrentReviewBasis(sheetBasis, requestedBasis) {
-  if (!requestedBasis || !sheetBasis) return true;
+function isCurrentSourceBasis(sheetBasis, requestedBasis) {
+  if (!requestedBasis) return true;
+  if (!sheetBasis) return false;
 
   return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
     .every((key) => sheetBasis[key] === requestedBasis[key]);
