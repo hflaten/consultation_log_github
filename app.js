@@ -1,4 +1,8 @@
 const SHEET_VERSION = "v1";
+const PROMPT_VERSION = "v1";
+const SCHEMA_VERSION = "v1";
+const SOURCE_VERSION = "openai:gpt-5.2";
+const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
 const SUPABASE_STORAGE_BUCKETS = {
@@ -115,7 +119,12 @@ const els = {
   dismissFlowHint: document.querySelector("#dismissFlowHint"),
   cacheStatus: document.querySelector("#cacheStatus"),
   completionStatus: document.querySelector("#completionStatus"),
+  reviewStatus: document.querySelector("#reviewStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
+  reviewBanner: document.querySelector("#reviewBanner"),
+  reviewLabel: document.querySelector("#reviewLabel"),
+  reviewMeta: document.querySelector("#reviewMeta"),
+  reviewTemplate: document.querySelector("#reviewTemplate"),
   sheetContainer: document.querySelector("#sheetContainer"),
   summaryPanel: document.querySelector(".summary-panel"),
   assess: document.querySelector("#assessButton"),
@@ -142,6 +151,7 @@ els.example.addEventListener("click", () => {
   updateFlowHint();
 });
 els.clear.addEventListener("click", clearAnswers);
+els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
   updateFlowHint();
@@ -194,14 +204,19 @@ async function generateSheet() {
   const cached = localStorage.getItem(key);
   if (cached) {
     state.sheet = JSON.parse(cached);
-    els.cacheStatus.textContent = "Hentet fra cache";
+    ensureReviewMetadata(state.sheet, sourceBasis());
+    if (!isCurrentSourceBasis(state.sheet.review.sourceBasis, sourceBasis())) {
+      localStorage.removeItem(key);
+      state.sheet = null;
+      return generateSheet();
+    }
+    els.cacheStatus.textContent = cacheStatusForSheet(state.sheet, "lokal cache");
   } else {
     els.generate.disabled = true;
     els.cacheStatus.textContent = "Lager spesialisert ark med AI";
     try {
       state.sheet = await generateAiSheet(key);
       localStorage.setItem(key, JSON.stringify(state.sheet));
-      els.cacheStatus.textContent = "AI-ark lagret i lokal cache";
     } catch (error) {
       console.warn("AI generation failed, using local fallback:", error);
       const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
@@ -209,6 +224,7 @@ async function generateSheet() {
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
+      state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "local_fallback");
       localStorage.setItem(key, JSON.stringify(state.sheet));
       els.cacheStatus.textContent = "AI utilgjengelig - lokal fallback brukt";
     } finally {
@@ -234,7 +250,8 @@ async function generateAiSheet(key) {
       sheetType: els.sheetType.value,
       presentation: els.caseInput.value,
       prompt: els.prompt.value,
-      cacheKey: key
+      cacheKey: key,
+      sourceBasis: sourceBasis()
     })
   });
 
@@ -245,13 +262,14 @@ async function generateAiSheet(key) {
 
   const data = await response.json();
   if (!data.sheet) throw new Error("API response did not contain a sheet");
-  els.cacheStatus.textContent = data.cacheHit ? "Hentet fra Supabase cache" : "AI-ark lagret i Supabase cache";
+  els.cacheStatus.textContent = cacheStatusForSheet(data.sheet, data.cacheHit ? "Supabase cache" : "Supabase cache");
   return data.sheet;
 }
 
 function renderSheet() {
   const sheet = state.sheet;
   els.sheetSubtitle.textContent = `${sheet.title} · ${sheet.goal}`;
+  updateReviewUi();
   els.sheetContainer.className = "";
   els.sheetContainer.innerHTML = [
     renderSection("Spørsmål", sheet.questions),
@@ -278,6 +296,136 @@ function renderSheet() {
       updateCompletion();
     });
   });
+}
+
+async function approveTemplate() {
+  if (!state.sheet) return;
+
+  const reviewer = window.prompt("Navn/initialer på kliniker som har gjennomgått arket:", localStorage.getItem(REVIEWER_STORAGE_KEY) || "");
+  if (!reviewer || reviewer.trim().length === 0) return;
+
+  localStorage.setItem(REVIEWER_STORAGE_KEY, reviewer.trim());
+  els.reviewTemplate.disabled = true;
+  els.cacheStatus.textContent = "Lagrer klinisk godkjenning";
+
+  try {
+    const response = await fetch("/api/ai/sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "review",
+        cacheKey: state.sheet.cacheKey || cacheKey(),
+        reviewer: reviewer.trim(),
+        sheet: state.sheet,
+        sourceBasis: sourceBasisForSheet(state.sheet)
+      })
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Review request failed ${response.status}: ${text.slice(0, 240)}`);
+    }
+
+    const data = await response.json();
+    state.sheet = data.sheet;
+    localStorage.setItem(state.sheet.cacheKey, JSON.stringify(state.sheet));
+    els.cacheStatus.textContent = "Klinisk godkjent mal lagret";
+    updateReviewUi();
+  } catch (error) {
+    console.warn("Template review failed:", error);
+    els.cacheStatus.textContent = "Kunne ikke lagre godkjenning";
+  } finally {
+    els.reviewTemplate.disabled = false;
+  }
+}
+
+function updateReviewUi() {
+  if (!state.sheet) {
+    els.reviewStatus.textContent = "Ikke vurdert";
+    els.reviewStatus.className = "";
+    els.reviewBanner.hidden = true;
+    return;
+  }
+
+  ensureReviewMetadata(state.sheet, sourceBasis());
+  const review = state.sheet.review;
+  const isReviewed = review.status === "reviewed";
+  els.reviewStatus.textContent = isReviewed ? "Kliniker-godkjent mal" : "AI-utkast";
+  els.reviewStatus.className = isReviewed ? "reviewed-status" : "draft-status";
+  els.reviewBanner.hidden = false;
+  els.reviewBanner.className = `review-banner ${isReviewed ? "reviewed" : "draft"}`;
+  els.reviewLabel.textContent = isReviewed ? "Kliniker-godkjent mal" : "AI-utkast - ikke klinisk godkjent";
+  els.reviewMeta.textContent = reviewSummary(review);
+  els.reviewTemplate.hidden = isReviewed;
+}
+
+function cacheStatusForSheet(sheet, sourceLabel) {
+  ensureReviewMetadata(sheet, sourceBasis());
+  return sheet.review.status === "reviewed"
+    ? `Hentet kliniker-godkjent mal fra ${sourceLabel}`
+    : `Hentet AI-utkast fra ${sourceLabel}`;
+}
+
+function reviewSummary(review) {
+  const basis = review.sourceBasis || {};
+  if (review.status === "reviewed") {
+    const date = review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString("nb-NO") : "ukjent dato";
+    return `Gjennomgått av ${review.reviewer || "ukjent kliniker"} ${date}. Basis: prompt ${basis.promptVersion || "ukjent"}, skjema ${basis.schemaVersion || "ukjent"}, kilde ${basis.sourceVersion || "ukjent"}.`;
+  }
+
+  return `Første genererte mal kan brukes som utkast, men må godkjennes før langtidsbruk. Basis: prompt ${basis.promptVersion || "ukjent"}, skjema ${basis.schemaVersion || "ukjent"}, kilde ${basis.sourceVersion || "ukjent"}.`;
+}
+
+function ensureReviewMetadata(sheet, fallbackBasis) {
+  sheet.review = {
+    status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
+    reviewer: sheet.review?.reviewer || null,
+    reviewedAt: sheet.review?.reviewedAt || null,
+    sourceBasis: sheet.review?.sourceBasis || fallbackBasis,
+    version: sheet.review?.version || "review-v1"
+  };
+}
+
+function buildDraftReviewMetadata(basis, source) {
+  return {
+    status: "unreviewed",
+    reviewer: null,
+    reviewedAt: null,
+    sourceBasis: {
+      ...basis,
+      generatedSource: source
+    },
+    version: "review-v1"
+  };
+}
+
+function sourceBasisForSheet(sheet) {
+  ensureReviewMetadata(sheet, sourceBasis());
+  return sheet.review.sourceBasis;
+}
+
+function sourceBasis() {
+  return {
+    promptHash: stableHash(els.prompt.value),
+    promptVersion: PROMPT_VERSION,
+    schemaVersion: SCHEMA_VERSION,
+    sourceVersion: SOURCE_VERSION,
+    templateVersion: SHEET_VERSION
+  };
+}
+
+function isCurrentSourceBasis(existingBasis, currentBasis) {
+  if (!existingBasis || !currentBasis) return false;
+  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
+    .every((key) => existingBasis[key] === currentBasis[key]);
+}
+
+function stableHash(text) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index += 1) {
+    hash = ((hash << 5) - hash + text.charCodeAt(index)) | 0;
+  }
+  return Math.abs(hash).toString(36);
 }
 
 function renderSection(title, items) {

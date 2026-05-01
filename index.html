@@ -16,6 +16,7 @@
           </div>
           <div class="status-strip" aria-live="polite">
             <span id="cacheStatus">Klar</span>
+            <span id="reviewStatus">Ikke vurdert</span>
             <span id="completionStatus">0% utfylt</span>
           </div>
         </header>
@@ -94,6 +95,13 @@
                 <h2 id="sheet-heading">Konsultasjonsark</h2>
                 <p id="sheetSubtitle">Ingen ark generert ennå.</p>
               </div>
+            </div>
+            <div id="reviewBanner" class="review-banner draft" hidden>
+              <div>
+                <strong id="reviewLabel">AI-utkast - ikke klinisk godkjent</strong>
+                <p id="reviewMeta">Første genererte mal kan brukes som utkast, men må godkjennes før langtidsbruk.</p>
+              </div>
+              <button id="reviewTemplate" class="secondary-button" type="button">Merk som kliniker-godkjent</button>
             </div>
             <div id="sheetContainer" class="empty-state">
               <div class="empty-state-content">

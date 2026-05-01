@@ -152,6 +152,16 @@ p {
   padding: 8px 12px;
 }
 
+.status-strip .reviewed-status {
+  background: var(--green-soft);
+  color: #145c45;
+}
+
+.status-strip .draft-status {
+  background: var(--amber-soft);
+  color: #744d12;
+}
+
 .flow-hint {
   align-items: flex-start;
   background: linear-gradient(135deg, #ffffff 0%, #eef8f6 100%);
@@ -302,6 +312,45 @@ textarea {
 .risk-panel.high {
   background: var(--red-soft);
   color: var(--red);
+}
+
+.review-banner {
+  border-radius: 8px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  line-height: 1.45;
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.review-banner[hidden] {
+  display: none;
+}
+
+.review-banner.draft {
+  background: var(--amber-soft);
+  color: #744d12;
+}
+
+.review-banner.reviewed {
+  background: var(--green-soft);
+  color: #145c45;
+}
+
+.review-banner strong,
+.review-banner span {
+  display: block;
+}
+
+.review-banner span {
+  font-size: 0.9rem;
+  margin-top: 3px;
+}
+
+.review-banner button {
+  align-self: center;
+  flex: 0 0 auto;
 }
 
 .empty-state {
@@ -495,6 +544,14 @@ textarea {
 
   .status-strip {
     justify-content: flex-start;
+  }
+
+  .review-banner {
+    flex-direction: column;
+  }
+
+  .review-banner button {
+    align-self: flex-start;
   }
 
   .form-grid,
