@@ -41,6 +41,10 @@ The browser only calls `/api/ai/sheet`. It never receives OpenAI or Supabase ser
 
 Use Supabase for storage related to reusable sheet templates and any optional report export storage.
 
+Source policy:
+
+- Source categories, NEL/Helsebiblioteket restrictions, template metadata, review statuses, and the future licensed-template ingestion path are documented in `consultassist-source-policy.md`.
+
 Planned buckets:
 
 - `consultassist-sheet-templates`

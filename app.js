@@ -2,6 +2,16 @@ const SHEET_VERSION = "v1";
 const PROMPT_VERSION = "v1";
 const SCHEMA_VERSION = "v1";
 const SOURCE_VERSION = "openai:gpt-5.2";
+const SOURCE_POLICY_VERSION = "source-policy-v1";
+const REVIEW_STATUS = {
+  draft: "draft",
+  clinicianReviewed: "clinician_reviewed",
+  approvedForUse: "approved_for_use"
+};
+const SOURCE_CATEGORY = {
+  aiGeneratedClinicalMethod: "ai_generated_clinical_method",
+  localFallback: "clinician_authored_local_template"
+};
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
@@ -224,6 +234,7 @@ async function generateSheet() {
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
+      state.sheet.sourceMetadata = sourceMetadata("local_fallback", SOURCE_CATEGORY.localFallback);
       state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "local_fallback");
       localStorage.setItem(key, JSON.stringify(state.sheet));
       els.cacheStatus.textContent = "AI utilgjengelig - lokal fallback brukt";
@@ -349,7 +360,7 @@ function updateReviewUi() {
 
   ensureReviewMetadata(state.sheet, sourceBasis());
   const review = state.sheet.review;
-  const isReviewed = review.status === "reviewed";
+  const isReviewed = review.status === REVIEW_STATUS.clinicianReviewed || review.status === REVIEW_STATUS.approvedForUse;
   els.reviewStatus.textContent = isReviewed ? "Kliniker-godkjent mal" : "AI-utkast";
   els.reviewStatus.className = isReviewed ? "reviewed-status" : "draft-status";
   els.reviewBanner.hidden = false;
@@ -361,14 +372,14 @@ function updateReviewUi() {
 
 function cacheStatusForSheet(sheet, sourceLabel) {
   ensureReviewMetadata(sheet, sourceBasis());
-  return sheet.review.status === "reviewed"
+  return sheet.review.status === REVIEW_STATUS.clinicianReviewed || sheet.review.status === REVIEW_STATUS.approvedForUse
     ? `Hentet kliniker-godkjent mal fra ${sourceLabel}`
     : `Hentet AI-utkast fra ${sourceLabel}`;
 }
 
 function reviewSummary(review) {
   const basis = review.sourceBasis || {};
-  if (review.status === "reviewed") {
+  if (review.status === REVIEW_STATUS.clinicianReviewed || review.status === REVIEW_STATUS.approvedForUse) {
     const date = review.reviewedAt ? new Date(review.reviewedAt).toLocaleDateString("nb-NO") : "ukjent dato";
     return `Gjennomgått av ${review.reviewer || "ukjent kliniker"} ${date}. Basis: prompt ${basis.promptVersion || "ukjent"}, skjema ${basis.schemaVersion || "ukjent"}, kilde ${basis.sourceVersion || "ukjent"}.`;
   }
@@ -377,18 +388,19 @@ function reviewSummary(review) {
 }
 
 function ensureReviewMetadata(sheet, fallbackBasis) {
+  sheet.sourceMetadata = normalizeSourceMetadata(sheet.sourceMetadata, sheet.source);
   sheet.review = {
-    status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
+    status: normalizeReviewStatus(sheet.review?.status),
     reviewer: sheet.review?.reviewer || null,
-    reviewedAt: sheet.review?.reviewedAt || null,
-    sourceBasis: sheet.review?.sourceBasis || fallbackBasis,
+    reviewedAt: sheet.review?.reviewedAt || sheet.review?.date || null,
+    sourceBasis: normalizeSourceBasis(sheet.review?.sourceBasis || fallbackBasis),
     version: sheet.review?.version || "review-v1"
   };
 }
 
 function buildDraftReviewMetadata(basis, source) {
   return {
-    status: "unreviewed",
+    status: REVIEW_STATUS.draft,
     reviewer: null,
     reviewedAt: null,
     sourceBasis: {
@@ -410,7 +422,8 @@ function sourceBasis() {
     promptVersion: PROMPT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     sourceVersion: SOURCE_VERSION,
-    templateVersion: SHEET_VERSION
+    templateVersion: SHEET_VERSION,
+    sourcePolicyVersion: SOURCE_POLICY_VERSION
   };
 }
 
@@ -418,6 +431,52 @@ function isCurrentSourceBasis(existingBasis, currentBasis) {
   if (!existingBasis || !currentBasis) return false;
   return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
     .every((key) => existingBasis[key] === currentBasis[key]);
+}
+
+function sourceMetadata(sourceName, category) {
+  const now = new Date().toISOString();
+  return {
+    category,
+    name: sourceName,
+    sourceVersion: sourceName === "local_fallback" ? "local-fallback:v1" : SOURCE_VERSION,
+    sourceDate: null,
+    retrievedAt: null,
+    templateVersion: SHEET_VERSION,
+    sourcePolicyVersion: SOURCE_POLICY_VERSION,
+    generatedAt: now
+  };
+}
+
+function normalizeSourceMetadata(metadata, sourceName) {
+  const fallbackSourceName = sourceName || "openai";
+  if (metadata && typeof metadata === "object") {
+    return {
+      category: metadata.category || SOURCE_CATEGORY.aiGeneratedClinicalMethod,
+      name: metadata.name || fallbackSourceName,
+      sourceVersion: metadata.sourceVersion || (fallbackSourceName === "local_fallback" ? "local-fallback:v1" : SOURCE_VERSION),
+      sourceDate: metadata.sourceDate || metadata.date || null,
+      retrievedAt: metadata.retrievedAt || null,
+      templateVersion: metadata.templateVersion || SHEET_VERSION,
+      sourcePolicyVersion: metadata.sourcePolicyVersion || SOURCE_POLICY_VERSION,
+      generatedAt: metadata.generatedAt || metadata.createdAt || null
+    };
+  }
+
+  return sourceMetadata(sourceName || "openai", sourceName === "local_fallback" ? SOURCE_CATEGORY.localFallback : SOURCE_CATEGORY.aiGeneratedClinicalMethod);
+}
+
+function normalizeReviewStatus(status) {
+  if (status === "reviewed") return REVIEW_STATUS.approvedForUse;
+  if (status === "unreviewed") return REVIEW_STATUS.draft;
+  return Object.values(REVIEW_STATUS).includes(status) ? status : REVIEW_STATUS.draft;
+}
+
+function normalizeSourceBasis(sourceBasis) {
+  if (!sourceBasis || typeof sourceBasis !== "object") return null;
+  return {
+    ...sourceBasis,
+    sourcePolicyVersion: sourceBasis.sourcePolicyVersion || SOURCE_POLICY_VERSION
+  };
 }
 
 function stableHash(text) {
