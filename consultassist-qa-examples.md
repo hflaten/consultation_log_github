@@ -6,8 +6,8 @@ Privacy checks for each scenario:
 
 - Do not enter name, fødselsnummer, phone, email, address, or other direct identifiers.
 - Confirm the AI request receives an age band and sanitized clinical presentation, not exact age or patient-identifiable contact details.
-- Confirm localStorage/Supabase cache entries are reusable sheet templates only. Completed answers and generated journal notes must not be cached as reusable templates.
-- Confirm the clinician can edit the generated journal note before using **Kopier** or **Eksporter PDF**.
+- Caching/storage policy: confirm localStorage/Supabase cache entries are reusable sheet templates only. Completed answers and generated journal notes must not be cached as reusable templates.
+- Confirm the generated journal note is editable before copy/export with **Kopier** or **Eksporter PDF**.
 
 ## General verification steps
 
