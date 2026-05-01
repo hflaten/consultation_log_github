@@ -104,7 +104,16 @@
 
         <section class="sheet-layout">
           <aside class="summary-panel" aria-labelledby="summary-heading">
-            <h2 id="summary-heading">Vurdering</h2>
+            <div class="summary-head">
+              <div>
+                <h2 id="summary-heading">Vurdering</h2>
+                <span id="assessmentFreshness" class="freshness-label" hidden>Må oppdateres</span>
+              </div>
+              <div class="summary-actions">
+                <button id="showAssessment" class="secondary-button compact-button" type="button" hidden>Vis</button>
+                <button id="hideAssessment" class="secondary-button compact-button" type="button" hidden>Skjul</button>
+              </div>
+            </div>
             <div id="riskPanel" class="risk-panel muted">Fyll ut arket for å lage vurdering.</div>
             <button id="assessButton" class="wide-button" type="button" hidden>Lag vurdering</button>
           </aside>
@@ -114,6 +123,17 @@
               <div>
                 <h2 id="sheet-heading">Konsultasjonsark</h2>
                 <p id="sheetSubtitle">Ingen ark generert ennå.</p>
+              </div>
+              <div id="flowControls" class="flow-controls" hidden>
+                <div class="segmented-control" aria-label="Visningsmodus">
+                  <button id="showAllMode" class="secondary-button active" type="button">Vis alle</button>
+                  <button id="focusMode" class="secondary-button" type="button">Ett og ett</button>
+                </div>
+                <div class="step-controls">
+                  <button id="previousItem" class="secondary-button compact-button" type="button">Forrige</button>
+                  <span id="activeItemStatus">0 / 0</span>
+                  <button id="nextItem" class="secondary-button compact-button" type="button">Neste</button>
+                </div>
               </div>
             </div>
             <div id="patientContextBar" class="patient-context-bar" hidden>

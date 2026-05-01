@@ -298,6 +298,39 @@ textarea {
   width: 100%;
 }
 
+.compact-button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.summary-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.summary-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.freshness-label {
+  background: var(--amber-soft);
+  border-radius: 999px;
+  color: #744d12;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  margin-top: 2px;
+  padding: 5px 8px;
+}
+
+.freshness-label[hidden] {
+  display: none;
+}
+
 .risk-panel {
   border-radius: 8px;
   line-height: 1.45;
@@ -312,6 +345,10 @@ textarea {
 
 .summary-panel h2 {
   font-size: 1.2rem;
+}
+
+.assessment-collapsed {
+  padding-bottom: 12px;
 }
 
 .urgency-kicker {
@@ -390,6 +427,38 @@ textarea {
 .review-banner button {
   align-self: center;
   flex: 0 0 auto;
+}
+
+.flow-controls {
+  align-items: flex-end;
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.flow-controls[hidden] {
+  display: none;
+}
+
+.segmented-control,
+.step-controls {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.segmented-control .active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.step-controls span {
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 900;
+  min-width: 52px;
+  text-align: center;
 }
 
 .patient-context-bar {
@@ -514,7 +583,25 @@ textarea {
 }
 
 .item-title strong {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
   line-height: 1.35;
+}
+
+.item-number {
+  align-items: center;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-soft-strong);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  font-weight: 900;
+  height: 26px;
+  justify-content: center;
+  width: 26px;
 }
 
 .item-title span {
@@ -531,11 +618,29 @@ textarea {
 }
 
 .answer-button {
+  align-items: center;
   background: #f0f4f6;
   border-color: #dce6ea;
   color: var(--ink);
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
   min-height: 36px;
   padding: 0 12px;
+}
+
+.shortcut-number {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(23, 32, 38, 0.12);
+  border-radius: 999px;
+  color: inherit;
+  display: inline-flex;
+  font-size: 0.78rem;
+  font-weight: 900;
+  height: 22px;
+  justify-content: center;
+  width: 22px;
 }
 
 .answer-button:hover {
@@ -563,6 +668,39 @@ textarea {
 .answer-button.active:hover {
   background: var(--primary-strong);
   border-color: var(--primary-strong);
+}
+
+.neuro-card {
+  display: grid;
+  gap: 12px;
+}
+
+.neuro-grid {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  overflow: hidden;
+}
+
+.neuro-row {
+  align-items: center;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(160px, 0.28fr) minmax(0, 1fr);
+  padding: 10px;
+}
+
+.neuro-row + .neuro-row {
+  border-top: 1px solid var(--line);
+}
+
+.neuro-row > span {
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.neuro-options {
+  margin-bottom: 0;
 }
 
 .report-panel textarea {
@@ -674,6 +812,23 @@ textarea {
 
   .summary-panel {
     position: static;
+  }
+
+  .summary-head,
+  .flow-controls {
+    align-items: stretch;
+  }
+
+  .summary-actions,
+  .segmented-control,
+  .step-controls {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .neuro-row {
+    align-items: stretch;
+    grid-template-columns: 1fr;
   }
 
   body.has-sticky-action-bar {

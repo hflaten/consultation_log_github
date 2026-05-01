@@ -4,6 +4,15 @@ const SCHEMA_VERSION = "v1";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
+const NEURO_SCREENING_FIELDS = [
+  ["consciousness", "Bevissthet"],
+  ["speech", "Tale"],
+  ["face", "Ansikt"],
+  ["strength", "Kraft/koordinasjon"],
+  ["sensation", "Sensibilitet"],
+  ["gait", "Gange"]
+];
+const NEURO_SCREENING_OPTIONS = ["Normal", "Funn", "Ikke gjort"];
 
 const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
 
@@ -102,9 +111,13 @@ const state = {
   sheet: null,
   answers: {},
   assessment: null,
+  assessmentHidden: false,
+  assessmentStale: false,
   stickyDismissed: false,
   nearTop: true,
-  setupCollapsed: false
+  setupCollapsed: false,
+  viewMode: "all",
+  activeItemIndex: 0
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
@@ -139,8 +152,17 @@ const els = {
   reviewTemplate: document.querySelector("#reviewTemplate"),
   sheetContainer: document.querySelector("#sheetContainer"),
   summaryPanel: document.querySelector(".summary-panel"),
+  assessmentFreshness: document.querySelector("#assessmentFreshness"),
+  showAssessment: document.querySelector("#showAssessment"),
+  hideAssessment: document.querySelector("#hideAssessment"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
+  flowControls: document.querySelector("#flowControls"),
+  showAllMode: document.querySelector("#showAllMode"),
+  focusMode: document.querySelector("#focusMode"),
+  previousItem: document.querySelector("#previousItem"),
+  nextItem: document.querySelector("#nextItem"),
+  activeItemStatus: document.querySelector("#activeItemStatus"),
   report: document.querySelector("#reportOutput"),
   copy: document.querySelector("#copyReport"),
   pdf: document.querySelector("#exportPdf"),
@@ -165,6 +187,12 @@ els.example.addEventListener("click", () => {
 });
 els.clear.addEventListener("click", clearAnswers);
 els.editSetup.addEventListener("click", () => setSetupCollapsed(false));
+els.showAssessment.addEventListener("click", () => setAssessmentHidden(false));
+els.hideAssessment.addEventListener("click", () => setAssessmentHidden(true));
+els.showAllMode.addEventListener("click", () => setViewMode("all"));
+els.focusMode.addEventListener("click", () => setViewMode("focus"));
+els.previousItem.addEventListener("click", () => moveActiveItem(-1));
+els.nextItem.addEventListener("click", () => moveActiveItem(1));
 els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
@@ -185,6 +213,7 @@ els.pdf.addEventListener("click", () => window.print());
 });
 window.addEventListener("scroll", updateStickyPosition, { passive: true });
 window.addEventListener("resize", updateStickyPosition);
+document.addEventListener("keydown", handleGlobalKeydown);
 updateFlowHint();
 updateStickyPosition();
 
@@ -286,6 +315,7 @@ async function generateAiSheet(key) {
 
 function renderSheet() {
   const sheet = state.sheet;
+  clampActiveItemIndex();
   els.sheetSubtitle.textContent = sheet.goal;
   els.patientContextBar.hidden = false;
   els.patientContextText.textContent = patientContextText();
@@ -297,6 +327,11 @@ function renderSheet() {
     renderGroupedSections("Spørsmål", sheet.questions),
     renderGroupedSections("Undersøkelser", sheet.examinations)
   ].join("");
+
+  document.querySelectorAll(".item-card").forEach((card) => {
+    card.addEventListener("focusin", () => setActiveItemById(card.dataset.id, false));
+    card.addEventListener("click", () => setActiveItemById(card.dataset.id, false));
+  });
 
   document.querySelectorAll(".answer-button").forEach((button) => {
     button.addEventListener("click", () => {
@@ -320,6 +355,16 @@ function renderSheet() {
   });
 
   Object.entries(state.answers).forEach(([id, answer]) => {
+    if (answer.neuro) {
+      Object.entries(answer.neuro).forEach(([key, value]) => {
+        document.querySelectorAll(`.answer-button[data-id="${id}"][data-neuro-key="${key}"]`).forEach((button) => {
+          const isActive = button.dataset.value === value;
+          button.classList.toggle("active", isActive);
+          button.setAttribute("aria-checked", isActive ? "true" : "false");
+        });
+      });
+      return;
+    }
     if (!answer.choice) return;
     document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((button) => {
       const isActive = button.dataset.value === answer.choice;
@@ -335,11 +380,13 @@ function renderSheet() {
       const id = input.dataset.id;
       state.answers[id] = state.answers[id] || {};
       state.answers[id].text = input.value.trim();
+      markAssessmentStale();
       updateCompletion();
     });
   });
 
   setSetupCollapsed(true);
+  updateFlowControls();
   setTimeout(() => els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
 }
 
@@ -474,7 +521,9 @@ function stableHash(text) {
 }
 
 function renderGroupedSections(title, items) {
-  const groups = groupBySection(items);
+  const visibleItems = state.viewMode === "focus" ? items.filter((entry) => entry.id === activeItem()?.id) : items;
+  if (visibleItems.length === 0) return "";
+  const groups = groupBySection(visibleItems);
   return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${Object.entries(groups).map(([section, entries]) => `
     <section class="sheet-subsection" aria-label="${escapeHtml(section)}">
       <div class="subsection-heading">
@@ -497,27 +546,64 @@ function groupBySection(items) {
 
 function renderItem(entry) {
   const answered = hasAnswer(entry.id);
+  if (isNeurologicalEntry(entry)) return renderNeurologicalItem(entry, answered);
+  const index = itemIndex(entry.id);
   return `<article class="item-card ${answered ? "answered" : "unanswered"}" data-id="${escapeHtml(entry.id)}">
     <div class="item-title">
-      <strong>${escapeHtml(entry.label)}</strong>
+      <strong><span class="item-number">${index + 1}</span>${escapeHtml(entry.label)}</strong>
       <span>${escapeHtml(entry.why)}</span>
     </div>
     <div class="button-row" data-label="${escapeHtml(entry.label)}">
-      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${escapeHtml(entry.id)}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
+      ${entry.buttons.map((button, optionIndex) => `<button class="answer-button" type="button" data-option-index="${optionIndex + 1}" data-id="${escapeHtml(entry.id)}" data-value="${escapeHtml(button)}"><span class="shortcut-number">${optionIndex + 1}</span>${escapeHtml(button)}</button>`).join("")}
     </div>
     <input class="free-text" data-id="${escapeHtml(entry.id)}" placeholder="${escapeHtml(entry.placeholder)}">
+  </article>`;
+}
+
+function renderNeurologicalItem(entry, answered) {
+  const index = itemIndex(entry.id);
+  const answer = state.answers[entry.id] || {};
+  const neuro = answer.neuro || {};
+  return `<article class="item-card neuro-card ${answered ? "answered" : "unanswered"}" data-id="${escapeHtml(entry.id)}">
+    <div class="item-title">
+      <strong><span class="item-number">${index + 1}</span>${escapeHtml(entry.label)}</strong>
+      <span>${escapeHtml(entry.why)}</span>
+    </div>
+    <div class="neuro-grid" role="group" aria-label="${escapeHtml(entry.label)}">
+      ${NEURO_SCREENING_FIELDS.map(([key, label]) => `
+        <div class="neuro-row">
+          <span>${escapeHtml(label)}</span>
+          <div class="button-row neuro-options" data-label="${escapeHtml(label)}">
+            ${NEURO_SCREENING_OPTIONS.map((option, optionIndex) => `<button class="answer-button neuro-button ${neuro[key] === option ? "active" : ""}" type="button" data-option-index="${optionIndex + 1}" data-id="${escapeHtml(entry.id)}" data-neuro-key="${escapeHtml(key)}" data-value="${escapeHtml(option)}"><span class="shortcut-number">${optionIndex + 1}</span>${escapeHtml(option)}</button>`).join("")}
+          </div>
+        </div>
+      `).join("")}
+    </div>
+    <input class="free-text" data-id="${escapeHtml(entry.id)}" placeholder="Samlet nevrologisk funn / fokalnevrologi">
   </article>`;
 }
 
 function selectAnswer(button) {
   const id = button.dataset.id;
   state.answers[id] = state.answers[id] || {};
-  state.answers[id].choice = button.dataset.value;
-  document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
-    const isActive = candidate === button;
-    candidate.classList.toggle("active", isActive);
-    candidate.setAttribute("aria-checked", isActive ? "true" : "false");
-  });
+  if (button.dataset.neuroKey) {
+    state.answers[id].neuro = state.answers[id].neuro || {};
+    state.answers[id].neuro[button.dataset.neuroKey] = button.dataset.value;
+    state.answers[id].choice = neurologicalChoice(state.answers[id].neuro);
+    button.closest(".neuro-options").querySelectorAll(".answer-button").forEach((candidate) => {
+      const isActive = candidate === button;
+      candidate.classList.toggle("active", isActive);
+      candidate.setAttribute("aria-checked", isActive ? "true" : "false");
+    });
+  } else {
+    state.answers[id].choice = button.dataset.value;
+    document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
+      const isActive = candidate === button;
+      candidate.classList.toggle("active", isActive);
+      candidate.setAttribute("aria-checked", isActive ? "true" : "false");
+    });
+  }
+  markAssessmentStale();
   updateCompletion();
 }
 
@@ -540,6 +626,51 @@ function handleAnswerKeydown(event) {
       ? buttons.length - 1
       : (index + (key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
   buttons[nextIndex].focus();
+}
+
+function handleGlobalKeydown(event) {
+  if (!state.sheet) return;
+  const target = event.target;
+  const isTextInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  if (isTextInput) return;
+
+  if (/^[1-5]$/.test(event.key)) {
+    const active = activeItem();
+    if (!active) return;
+    const scope = activeCardElement(active.id);
+    const row = activeShortcutRow(scope);
+    const button = row?.querySelector(`.answer-button[data-option-index="${event.key}"]`);
+    if (!button) return;
+    event.preventDefault();
+    selectAnswer(button);
+    if (state.viewMode === "focus") {
+      if (button.dataset.neuroKey && focusNextNeuroRow(button)) return;
+      setTimeout(() => moveActiveItem(1), 120);
+    }
+    return;
+  }
+
+  if (event.key === "Enter" && state.viewMode === "focus") {
+    event.preventDefault();
+    moveActiveItem(1);
+    return;
+  }
+
+  if (event.key === "Escape" && state.viewMode === "focus") {
+    event.preventDefault();
+    setViewMode("all");
+    return;
+  }
+
+  if (event.key === "ArrowRight" && state.viewMode === "focus") {
+    event.preventDefault();
+    moveActiveItem(1);
+  }
+
+  if (event.key === "ArrowLeft" && state.viewMode === "focus") {
+    event.preventDefault();
+    moveActiveItem(-1);
+  }
 }
 
 function updateCompletion() {
@@ -569,6 +700,8 @@ function updateCompletion() {
     card.classList.toggle("unanswered", !answered);
   });
   updateStickyActionBar();
+  updateAssessmentControls();
+  updateFlowControls();
 }
 
 function assess() {
@@ -581,12 +714,15 @@ function assess() {
   const title = urgency.title;
 
   state.assessment = { risk, title, urgency: urgency.category, missingCritical };
+  state.assessmentHidden = false;
+  state.assessmentStale = false;
   els.risk.className = `risk-panel ${risk}`;
   els.risk.innerHTML = `<div class="urgency-kicker">${escapeHtml(urgency.category)}</div><strong>${title}</strong><p>${riskText(risk, missingCritical)}</p>${missingCritical.length ? `<p><strong>Mangler før trygg vurdering:</strong> ${missingCritical.map(escapeHtml).join(", ")}</p>` : ""}<strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
   updateStickyActionBar();
+  updateAssessmentControls();
   scrollToAssessment();
 }
 
@@ -618,8 +754,7 @@ function riskText(risk, missingCritical = []) {
 
 function buildReport() {
   const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
-    const answer = state.answers[entry.id] || {};
-    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
+    return `- ${entry.label}: ${formatAnswer(entry)}`;
   }).join("\n");
 
   return `Journalnotat - ${state.sheet.title}
@@ -648,6 +783,8 @@ async function copyReport() {
 function clearAnswers() {
   state.answers = {};
   state.assessment = null;
+  state.assessmentHidden = false;
+  state.assessmentStale = false;
   state.stickyDismissed = false;
   if (state.sheet) renderSheet();
   updateCompletion();
@@ -660,6 +797,7 @@ function resetReport() {
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
+  updateAssessmentControls();
   updateStickyActionBar();
 }
 
@@ -679,7 +817,11 @@ function getCompletion() {
 
 function hasAnswer(id) {
   const answer = state.answers[id];
-  return answer && (answer.choice || answer.text);
+  if (!answer) return false;
+  if (answer.neuro) {
+    return NEURO_SCREENING_FIELDS.every(([key]) => Boolean(answer.neuro[key])) || Boolean(answer.text);
+  }
+  return answer.choice || answer.text;
 }
 
 function missingCriticalAnswers() {
@@ -689,6 +831,145 @@ function missingCriticalAnswers() {
     .filter((entry) => criticalTerms.test(`${entry.section || ""} ${entry.label}`) && !hasAnswer(entry.id))
     .slice(0, 4)
     .map((entry) => entry.label);
+}
+
+function isNeurologicalEntry(entry) {
+  return /nevrologisk (screening|undersøkelse)|nevrologisk/i.test(entry.label);
+}
+
+function neurologicalChoice(neuro) {
+  const values = Object.values(neuro || {});
+  if (values.length === 0) return "";
+  if (NEURO_SCREENING_FIELDS.every(([key]) => neuro[key] === "Normal")) return "Normal";
+  if (values.includes("Funn")) return "Funn";
+  if (values.includes("Ikke gjort")) return "Delvis / ikke komplett";
+  return "Påbegynt";
+}
+
+function formatAnswer(entry) {
+  const answer = state.answers[entry.id] || {};
+  const parts = [];
+  if (answer.neuro) {
+    const neuroParts = NEURO_SCREENING_FIELDS
+      .map(([key, label]) => `${label.toLowerCase()}: ${answer.neuro[key] || "ikke utfylt"}`)
+      .join(", ");
+    parts.push(neuroParts);
+  } else if (answer.choice) {
+    parts.push(answer.choice);
+  }
+  if (answer.text) parts.push(answer.text);
+  return parts.join(". ") || "ikke utfylt";
+}
+
+function markAssessmentStale() {
+  if (!state.assessment) return;
+  state.assessmentStale = true;
+  updateAssessmentControls();
+}
+
+function setAssessmentHidden(hidden) {
+  state.assessmentHidden = hidden;
+  updateAssessmentControls();
+  updateStickyActionBar();
+}
+
+function updateAssessmentControls() {
+  const hasAssessment = Boolean(state.assessment);
+  els.assessmentFreshness.hidden = !state.assessmentStale;
+  els.hideAssessment.hidden = !hasAssessment || state.assessmentHidden;
+  els.showAssessment.hidden = !hasAssessment || !state.assessmentHidden;
+  els.risk.hidden = hasAssessment && state.assessmentHidden;
+  if (hasAssessment && state.assessmentHidden) {
+    els.summaryPanel.classList.add("assessment-collapsed");
+  } else {
+    els.summaryPanel.classList.remove("assessment-collapsed");
+  }
+}
+
+function sheetItems() {
+  return state.sheet ? [...state.sheet.questions, ...state.sheet.examinations] : [];
+}
+
+function activeItem() {
+  return sheetItems()[state.activeItemIndex] || null;
+}
+
+function itemIndex(id) {
+  return sheetItems().findIndex((entry) => entry.id === id);
+}
+
+function clampActiveItemIndex() {
+  const total = sheetItems().length;
+  if (total === 0) {
+    state.activeItemIndex = 0;
+    return;
+  }
+  state.activeItemIndex = Math.min(Math.max(state.activeItemIndex, 0), total - 1);
+}
+
+function setActiveItemById(id, rerender = true) {
+  const index = itemIndex(id);
+  if (index < 0) return;
+  state.activeItemIndex = index;
+  updateFlowControls();
+  if (rerender && state.viewMode === "focus") renderSheet();
+}
+
+function setViewMode(mode) {
+  state.viewMode = mode;
+  clampActiveItemIndex();
+  renderSheet();
+  if (mode === "focus") focusActiveItemControl();
+}
+
+function moveActiveItem(direction) {
+  const total = sheetItems().length;
+  if (!total) return;
+  state.activeItemIndex = Math.min(Math.max(state.activeItemIndex + direction, 0), total - 1);
+  renderSheet();
+  focusActiveItemControl();
+}
+
+function updateFlowControls() {
+  const total = sheetItems().length;
+  els.flowControls.hidden = total === 0;
+  els.showAllMode.classList.toggle("active", state.viewMode === "all");
+  els.focusMode.classList.toggle("active", state.viewMode === "focus");
+  els.activeItemStatus.textContent = total ? `${state.activeItemIndex + 1} / ${total}` : "0 / 0";
+  els.previousItem.disabled = state.activeItemIndex <= 0;
+  els.nextItem.disabled = total === 0 || state.activeItemIndex >= total - 1;
+}
+
+function activeCardElement(id) {
+  return [...document.querySelectorAll(".item-card")].find((card) => card.dataset.id === id) || null;
+}
+
+function activeShortcutRow(scope) {
+  if (!scope) return null;
+  const focusedRow = document.activeElement?.closest?.(".button-row");
+  if (focusedRow && scope.contains(focusedRow)) return focusedRow;
+  return scope.querySelector(".button-row");
+}
+
+function focusNextNeuroRow(button) {
+  const rows = [...button.closest(".neuro-grid")?.querySelectorAll(".button-row") || []];
+  const currentRow = button.closest(".button-row");
+  const nextRow = rows[rows.indexOf(currentRow) + 1];
+  if (!nextRow) return false;
+  const nextButton = nextRow.querySelector(".answer-button");
+  if (!nextButton) return false;
+  setTimeout(() => nextButton.focus(), 80);
+  return true;
+}
+
+function focusActiveItemControl() {
+  const active = activeItem();
+  if (!active) return;
+  setTimeout(() => {
+    const scope = activeCardElement(active.id);
+    const control = scope?.querySelector(".answer-button, .free-text");
+    control?.focus({ preventScroll: true });
+  }, 0);
 }
 
 function updateStickyPosition() {
@@ -703,7 +984,7 @@ function updateStickyActionBar() {
   els.stickyBar.classList.toggle("visible", shouldShow);
   els.stickyBar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
   document.body.classList.toggle("has-sticky-action-bar", shouldShow);
-  els.stickyViewAssessment.hidden = !state.assessment;
+  els.stickyViewAssessment.hidden = !state.assessment || !state.assessmentHidden;
 }
 
 function updateFlowHint() {
