@@ -1,5 +1,8 @@
 const OPENAI_MODEL = "gpt-5.2";
 const SHEET_BUCKET = "consultassist-sheet-templates";
+const REVIEW_METADATA_VERSION = "review-v1";
+const REVIEWED_PREFIX = "reviewed";
+const DRAFT_PREFIX = "drafts";
 
 module.exports = async function handler(req, res) {
   setJsonHeaders(res);
@@ -10,15 +13,24 @@ module.exports = async function handler(req, res) {
 
   try {
     const input = normalizeRequestBody(req.body);
+    const action = input.action || "generate";
+
+    if (action === "review") {
+      validateReviewInput(input);
+      const reviewedSheet = markSheetReviewed(input.sheet, input);
+      await writeCachedSheet(input.cacheKey, reviewedSheet, REVIEWED_PREFIX);
+      return send(res, 200, { sheet: reviewedSheet, cacheHit: true, reviewSaved: true });
+    }
+
     validateInput(input);
 
-    const cached = await readCachedSheet(input.cacheKey);
+    const cached = await readCachedSheet(input.cacheKey, input.reviewBasis);
     if (cached) {
       return send(res, 200, { sheet: cached, cacheHit: true });
     }
 
     const sheet = await generateSheet(input);
-    await writeCachedSheet(input.cacheKey, sheet);
+    await writeCachedSheet(input.cacheKey, sheet, DRAFT_PREFIX);
 
     return send(res, 200, { sheet, cacheHit: false });
   } catch (error) {
@@ -54,27 +66,55 @@ function validateInput(input) {
   }
 }
 
-async function readCachedSheet(cacheKey) {
-  if (!hasSupabaseEnv()) return null;
-
-  const response = await fetch(storageObjectUrl(cacheKey), {
-    method: "GET",
-    headers: supabaseHeaders()
-  });
-
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    console.warn("Supabase cache read failed", response.status, await response.text());
-    return null;
+function validateReviewInput(input) {
+  if (typeof input.cacheKey !== "string" || input.cacheKey.trim().length === 0) {
+    const error = new Error("Missing cacheKey");
+    error.statusCode = 400;
+    error.publicMessage = "Missing cacheKey";
+    throw error;
   }
 
-  return response.json();
+  if (!input.sheet || typeof input.sheet !== "object") {
+    const error = new Error("Missing sheet");
+    error.statusCode = 400;
+    error.publicMessage = "Missing sheet";
+    throw error;
+  }
+
+  if (typeof input.reviewer !== "string" || input.reviewer.trim().length === 0) {
+    const error = new Error("Missing reviewer");
+    error.statusCode = 400;
+    error.publicMessage = "Reviewer is required";
+    throw error;
+  }
 }
 
-async function writeCachedSheet(cacheKey, sheet) {
+async function readCachedSheet(cacheKey, reviewBasis) {
+  if (!hasSupabaseEnv()) return null;
+
+  for (const prefix of [REVIEWED_PREFIX, DRAFT_PREFIX, null]) {
+    const response = await fetch(storageObjectUrl(cacheKey, prefix), {
+      method: "GET",
+      headers: supabaseHeaders()
+    });
+
+    if (response.status === 404) continue;
+    if (!response.ok) {
+      console.warn("Supabase cache read failed", response.status, await response.text());
+      continue;
+    }
+
+    const sheet = normalizeCachedSheet(await response.json(), cacheKey, reviewBasis);
+    if (isCurrentReviewBasis(sheet.review?.sourceBasis, reviewBasis)) return sheet;
+  }
+
+  return null;
+}
+
+async function writeCachedSheet(cacheKey, sheet, prefix) {
   if (!hasSupabaseEnv()) return;
 
-  const response = await fetch(storageObjectUrl(cacheKey), {
+  const response = await fetch(storageObjectUrl(cacheKey, prefix), {
     method: "POST",
     headers: {
       ...supabaseHeaders(),
@@ -93,14 +133,14 @@ function hasSupabaseEnv() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
 
-function storageObjectUrl(cacheKey) {
+function storageObjectUrl(cacheKey, prefix) {
   const baseUrl = process.env.SUPABASE_URL.replace(/\/$/, "");
-  return `${baseUrl}/storage/v1/object/${SHEET_BUCKET}/${objectName(cacheKey)}`;
+  return `${baseUrl}/storage/v1/object/${SHEET_BUCKET}/${objectName(cacheKey, prefix)}`;
 }
 
-function objectName(cacheKey) {
+function objectName(cacheKey, prefix) {
   const safeName = Buffer.from(cacheKey).toString("base64url");
-  return `${safeName}.json`;
+  return prefix ? `${prefix}/${safeName}.json` : `${safeName}.json`;
 }
 
 function supabaseHeaders() {
@@ -175,7 +215,7 @@ async function generateSheet(input) {
 
   const data = await response.json();
   const parsed = parseResponseJson(data);
-  return normalizeAiSheet(parsed, input.cacheKey);
+  return normalizeAiSheet(parsed, input.cacheKey, input.reviewBasis);
 }
 
 function parseResponseJson(data) {
@@ -193,7 +233,7 @@ function parseResponseJson(data) {
   return JSON.parse(text);
 }
 
-function normalizeAiSheet(sheet, cacheKey) {
+function normalizeAiSheet(sheet, cacheKey, reviewBasis) {
   return {
     title: sheet.title,
     goal: sheet.goal,
@@ -203,8 +243,67 @@ function normalizeAiSheet(sheet, cacheKey) {
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
-    source: "openai"
+    source: "openai",
+    review: createReviewMetadata({
+      status: "unreviewed",
+      reviewer: null,
+      reviewedAt: null,
+      sourceBasis: reviewBasis
+    })
   };
+}
+
+function normalizeCachedSheet(sheet, cacheKey, reviewBasis) {
+  return {
+    ...sheet,
+    cacheKey: sheet.cacheKey || cacheKey,
+    review: createReviewMetadata({
+      status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
+      reviewer: sheet.review?.reviewer || null,
+      reviewedAt: sheet.review?.reviewedAt || sheet.review?.date || null,
+      sourceBasis: sheet.review?.sourceBasis || null
+    })
+  };
+}
+
+function markSheetReviewed(sheet, input) {
+  const reviewedAt = new Date().toISOString();
+
+  return {
+    title: sheet.title,
+    goal: sheet.goal,
+    redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
+    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
+    cacheKey: input.cacheKey,
+    createdAt: sheet.createdAt || reviewedAt,
+    source: sheet.source || "clinician_review",
+    review: createReviewMetadata({
+      status: "reviewed",
+      reviewer: input.reviewer.trim(),
+      reviewedAt,
+      sourceBasis: input.reviewBasis || sheet.review?.sourceBasis || null
+    })
+  };
+}
+
+function createReviewMetadata({ status, reviewer, reviewedAt, sourceBasis }) {
+  return {
+    status,
+    reviewer,
+    reviewedAt,
+    date: reviewedAt,
+    sourceBasis: sourceBasis || null,
+    version: REVIEW_METADATA_VERSION
+  };
+}
+
+function isCurrentReviewBasis(sheetBasis, requestedBasis) {
+  if (!requestedBasis || !sheetBasis) return true;
+
+  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
+    .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
 function item(id, label, why, buttons, placeholder) {
