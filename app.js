@@ -126,6 +126,7 @@ const els = {
   reviewMeta: document.querySelector("#reviewMeta"),
   reviewTemplate: document.querySelector("#reviewTemplate"),
   sheetContainer: document.querySelector("#sheetContainer"),
+  outputSection: document.querySelector("#outputSection"),
   summaryPanel: document.querySelector(".summary-panel"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
@@ -238,6 +239,7 @@ async function generateSheet() {
   updateCompletion();
   resetReport();
   updateFlowHint();
+  scrollToOutputSection();
 }
 
 async function generateAiSheet(key) {
@@ -477,6 +479,7 @@ function assess() {
   const title = risk === "high" ? "Høyere risiko / vurder akutt tiltak" : risk === "medium" ? "Moderat risiko / målrettet oppfølging" : "Lavere risiko ut fra utfylte svar";
 
   state.assessment = { risk, title };
+  els.summaryPanel.className = `summary-panel assessment-card ${risk}`;
   els.risk.className = `risk-panel ${risk}`;
   els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
   els.report.value = buildReport();
@@ -531,6 +534,7 @@ function clearAnswers() {
 }
 
 function resetReport() {
+  els.summaryPanel.className = "summary-panel assessment-card";
   els.risk.className = "risk-panel muted";
   els.risk.textContent = state.sheet ? "Fyll ut noen svar i arket for å lage vurdering." : "Lag et konsultasjonsark først, fyll det ut, og hent deretter vurdering.";
   els.report.value = "";
@@ -579,8 +583,12 @@ function updateFlowHint() {
 }
 
 function scrollToAssessment() {
-  els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  els.assess.focus({ preventScroll: true });
+  scrollToOutputSection();
+  els.summaryPanel.focus({ preventScroll: true });
+}
+
+function scrollToOutputSection() {
+  els.outputSection.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 function escapeHtml(value) {
