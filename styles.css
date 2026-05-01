@@ -457,8 +457,15 @@ textarea {
   border-color: var(--primary-strong);
 }
 
-.report-panel textarea {
+.report-output {
   min-height: 260px;
+}
+
+.copy-status {
+  color: var(--primary-strong);
+  font-size: 0.9rem;
+  font-weight: 700;
+  min-height: 1.4em;
 }
 
 .sticky-action-bar {
