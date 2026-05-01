@@ -173,7 +173,8 @@ async function generateSheet(input) {
         "Svar kun med JSON som matcher skjemaet.",
         "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
         "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
-        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging.",
+        "Undersøkelseslisten må være realistisk for en 15-minutters fastlegekonsultasjon: prioriter få må-gjøre-undersøkelser og legg bare relevante tillegg som valgfrie undersøkelser."
       ].join(" "),
       input: [
         {
@@ -239,8 +240,9 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: sheet.redFlags,
-    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
-    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    questions: sheet.questions.map((entry, index) => itemFromEntry(entry, `q${index + 1}`)),
+    mustDoExaminations: sheet.mustDoExaminations.map((entry, index) => itemFromEntry(entry, `e${index + 1}`)),
+    optionalExaminations: sheet.optionalExaminations.map((entry, index) => itemFromEntry(entry, `oe${index + 1}`)),
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
@@ -255,8 +257,10 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
 }
 
 function normalizeCachedSheet(sheet, cacheKey) {
+  const normalized = normalizeSheetShape(sheet);
+
   return {
-    ...sheet,
+    ...normalized,
     cacheKey: sheet.cacheKey || cacheKey,
     review: createReviewMetadata({
       status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
@@ -269,14 +273,16 @@ function normalizeCachedSheet(sheet, cacheKey) {
 
 function markSheetReviewed(sheet, input) {
   const reviewedAt = new Date().toISOString();
+  const normalized = normalizeSheetShape(sheet);
 
   return {
-    title: sheet.title,
-    goal: sheet.goal,
-    redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
-    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
-    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
-    followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
+    title: normalized.title,
+    goal: normalized.goal,
+    redFlags: normalized.redFlags,
+    questions: normalized.questions,
+    mustDoExaminations: normalized.mustDoExaminations,
+    optionalExaminations: normalized.optionalExaminations,
+    followUp: normalized.followUp,
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
     source: sheet.source || "clinician_review",
@@ -312,8 +318,47 @@ function item(id, label, why, buttons, placeholder) {
   return { id, label, why, buttons, placeholder };
 }
 
+function itemFromEntry(entry, fallbackId) {
+  return item(
+    entry.id || fallbackId,
+    entry.label,
+    entry.why,
+    entry.buttons || entry.resultOptions,
+    entry.placeholder || entry.notePlaceholder
+  );
+}
+
+function normalizeSheetShape(sheet) {
+  const legacyExaminations = Array.isArray(sheet.examinations) ? sheet.examinations : [];
+  const mustDoExaminations = Array.isArray(sheet.mustDoExaminations) && sheet.mustDoExaminations.length
+    ? sheet.mustDoExaminations
+    : legacyExaminations;
+  const optionalExaminations = Array.isArray(sheet.optionalExaminations) ? sheet.optionalExaminations : [];
+
+  return {
+    ...sheet,
+    redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
+    questions: normalizeItems(sheet.questions, "q"),
+    mustDoExaminations: normalizeItems(mustDoExaminations, "e"),
+    optionalExaminations: normalizeItems(optionalExaminations, "oe"),
+    followUp: Array.isArray(sheet.followUp) ? sheet.followUp : []
+  };
+}
+
+function normalizeItems(items, prefix) {
+  return Array.isArray(items)
+    ? items.map((entry, index) => item(
+      entry.id || `${prefix}${index + 1}`,
+      entry.label || "",
+      entry.why || entry.why_it_matters || "",
+      entry.buttons || entry.answer_buttons || entry.resultOptions || [],
+      entry.placeholder || entry.free_text_placeholder || entry.notePlaceholder || ""
+    ))
+    : [];
+}
+
 function sheetJsonSchema() {
-  const option = {
+  const questionOption = {
     type: "object",
     additionalProperties: false,
     required: ["id", "label", "why", "buttons", "placeholder"],
@@ -330,11 +375,28 @@ function sheetJsonSchema() {
       placeholder: { type: "string" }
     }
   };
+  const examinationOption = {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "label", "why", "resultOptions", "notePlaceholder"],
+    properties: {
+      id: { type: "string" },
+      label: { type: "string" },
+      why: { type: "string" },
+      resultOptions: {
+        type: "array",
+        minItems: 2,
+        maxItems: 5,
+        items: { type: "string" }
+      },
+      notePlaceholder: { type: "string" }
+    }
+  };
 
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "goal", "redFlags", "questions", "examinations", "followUp"],
+    required: ["title", "goal", "redFlags", "questions", "mustDoExaminations", "optionalExaminations", "followUp"],
     properties: {
       title: { type: "string" },
       goal: { type: "string" },
@@ -348,13 +410,19 @@ function sheetJsonSchema() {
         type: "array",
         minItems: 5,
         maxItems: 12,
-        items: option
+        items: questionOption
       },
-      examinations: {
+      mustDoExaminations: {
         type: "array",
-        minItems: 3,
-        maxItems: 10,
-        items: option
+        minItems: 2,
+        maxItems: 6,
+        items: examinationOption
+      },
+      optionalExaminations: {
+        type: "array",
+        minItems: 0,
+        maxItems: 4,
+        items: examinationOption
       },
       followUp: {
         type: "array",

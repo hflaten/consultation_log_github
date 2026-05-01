@@ -402,6 +402,27 @@ textarea {
   margin-top: 18px;
 }
 
+.sheet-section h3 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.sheet-section-must-do h3::after {
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-soft-strong);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  content: "Prioritert";
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 4px 8px;
+}
+
+.sheet-section-must-do .item-card {
+  border-color: var(--primary-soft-strong);
+}
+
 .item-card {
   border: 1px solid var(--line);
   border-radius: 8px;
