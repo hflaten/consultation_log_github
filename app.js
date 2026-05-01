@@ -1,6 +1,6 @@
-const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
-const SCHEMA_VERSION = "v1";
+const SHEET_VERSION = "v2";
+const PROMPT_VERSION = "v2";
+const SCHEMA_VERSION = "v2";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
@@ -10,34 +10,37 @@ const SUPABASE_STORAGE_BUCKETS = {
   reportExports: "consultassist-report-exports"
 };
 
-const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
+const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag et triage-først konsultasjonsark for en 15-minutters første kontakt basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging uten å bli en bred, uttømmende utredning.
 
 Input:
 - Pasient: alder, kjønn, relevant kontekst
 - Presenterende problemstilling: fri tekst
 - Ønsket arktype: minimumsliste for konsultasjon
+- Første episode: ja/nei
 - Språk: norsk bokmål
 - Klinisk ramme: fastlegekontor i Norge
 
 Output som JSON:
-- sheet_title
-- clinical_goal
-- red_flags: korte punkter
-- questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder }
-- examinations: liste med { id, label, answer_buttons, free_text_placeholder }
-- initial_assessment_rules: kort veiledning for alvorlighetsgrad
-- follow_up_options: anbefalte neste steg
-- journal_note_template: struktur for ferdig journalnotat
+- title
+- goal
+- redFlags: korte punkter
+- questions: må-spørres liste med { id, label, why, buttons, placeholder }
+- examinations: må-undersøkes liste med { id, label, why, buttons, placeholder }
+- optionalItems: valgfritt/kontekstavhengig liste med { id, label, why, buttons, placeholder }
+- followUp: anbefalte neste steg
 
 Krav:
+- Første episode skal gi en minimumsliste for 15 minutter, ikke en bred utredningsliste.
+- Del tydelig mellom må-spørres, må-undersøkes og valgfritt/kontekstavhengig.
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
-- Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
+- Hvert punkt skal ha relevante svarknapper og et lite fritekstfelt.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
 
 const dizzinessTemplate = {
   title: "Svimmelhet - minimumsliste",
   goal: "Avklare alvorlighetsgrad, røde flagg, sannsynlig årsak og behov for videre utredning eller oppfølging.",
+  firstEpisodeFocus: "Minimumsliste for 15-minutters første kontakt med rask avklaring av alvorlighet.",
   redFlags: [
     "Akutt nevrologisk utfall, ny kraftig hodepine eller synkope",
     "Brystsmerter, tungpust, palpitasjoner eller arytmimistanke",
@@ -61,6 +64,10 @@ const dizzinessTemplate = {
     item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon."),
     item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.")
   ],
+  optionalItems: [
+    item("o1", "Supplerende tester", "Tas bare ved funn eller risikoprofil som tilsier mer utredning i første kontakt.", ["Ikke aktuelt nå", "Planlagt", "Utført"], "Blodprøver, glukose, CRP eller annet."),
+    item("o2", "Arbeid, bilkjøring og fallrisiko", "Kontekst påvirker sikkerhetsnett og praktiske råd.", ["Ikke problem", "Relevant", "Usikkert"], "Skriv konkrete råd eller begrensninger.")
+  ],
   followUp: [
     "Akutt innleggelse/konferering ved nevrologiske utfall, synkope med alarmsymptomer eller ustabil pasient.",
     "BPPV-mistanke: vurder reposisjonsmanøver og kort kontroll ved manglende bedring.",
@@ -72,6 +79,7 @@ const dizzinessTemplate = {
 const genericTemplate = {
   title: "Generelt konsultasjonsark - minimumsliste",
   goal: "Strukturere konsultasjonen, avklare alvorlighet og planlegge videre oppfølging.",
+  firstEpisodeFocus: "Minimumsliste for 15-minutters første kontakt med prioritering av røde flagg og målrettede funn.",
   redFlags: [
     "Akutt funksjonstap eller rask forverring",
     "Sterke smerter, påvirket allmenntilstand eller sirkulatorisk påvirkning",
@@ -88,6 +96,10 @@ const genericTemplate = {
     item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov."),
     item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn."),
     item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.")
+  ],
+  optionalItems: [
+    item("o1", "Pasientens mål og bekymring", "Nyttig når tid og problemstilling tillater det.", ["Avklart", "Ikke avklart", "Ikke aktuelt"], "Hva er pasienten mest bekymret for?"),
+    item("o2", "Praktiske rammer for oppfølging", "Kontekst kan endre plan og sikkerhetsnett.", ["Enkelt", "Utfordrende", "Usikkert"], "Arbeid, omsorgsansvar, reise, tilgjengelighet.")
   ],
   followUp: [
     "Akutt tiltak ved røde flagg eller påvirket pasient.",
@@ -110,6 +122,7 @@ const els = {
   age: document.querySelector("#ageInput"),
   sex: document.querySelector("#sexInput"),
   sheetType: document.querySelector("#sheetType"),
+  firstEpisode: document.querySelectorAll('input[name="firstEpisode"]'),
   caseInput: document.querySelector("#caseInput"),
   prompt: document.querySelector("#promptInput"),
   generate: document.querySelector("#generateSheet"),
@@ -147,6 +160,7 @@ els.example.addEventListener("click", () => {
   els.age.value = "44";
   els.sex.value = "mann";
   els.sheetType.value = "minimumsliste";
+  setFirstEpisode(true);
   els.caseInput.value = "Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.";
   updateFlowHint();
 });
@@ -169,6 +183,7 @@ els.pdf.addEventListener("click", () => window.print());
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
 });
+els.firstEpisode.forEach((input) => input.addEventListener("change", updateFlowHint));
 window.addEventListener("scroll", updateStickyPosition, { passive: true });
 window.addEventListener("resize", updateStickyPosition);
 updateFlowHint();
@@ -193,10 +208,16 @@ function cacheKey() {
     normalizeTopic(els.caseInput.value),
     ageBand,
     els.sex.value,
+    firstEpisodeValue(),
     els.sheetType.value,
     "nb-no",
     "fastlege"
   ].join(":");
+}
+
+function sheetSubtitle(sheet) {
+  const episodeLabel = sheet.firstEpisode ? "første episode" : "tilbakevendende episode";
+  return `${sheet.title} · ${episodeLabel} · ${sheet.goal}`;
 }
 
 async function generateSheet() {
@@ -204,6 +225,7 @@ async function generateSheet() {
   const cached = localStorage.getItem(key);
   if (cached) {
     state.sheet = JSON.parse(cached);
+    normalizeSheetForUi(state.sheet);
     ensureReviewMetadata(state.sheet, sourceBasis());
     if (!isCurrentSourceBasis(state.sheet.review.sourceBasis, sourceBasis())) {
       localStorage.removeItem(key);
@@ -221,9 +243,11 @@ async function generateSheet() {
       console.warn("AI generation failed, using local fallback:", error);
       const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
       state.sheet = structuredClone(base);
+      normalizeSheetForUi(state.sheet);
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
+      state.sheet.firstEpisode = firstEpisodeValue() === "first";
       state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "local_fallback");
       localStorage.setItem(key, JSON.stringify(state.sheet));
       els.cacheStatus.textContent = "AI utilgjengelig - lokal fallback brukt";
@@ -248,6 +272,7 @@ async function generateAiSheet(key) {
       age: els.age.value,
       sex: els.sex.value,
       sheetType: els.sheetType.value,
+      firstEpisode: firstEpisodeValue(),
       presentation: els.caseInput.value,
       prompt: els.prompt.value,
       cacheKey: key,
@@ -262,18 +287,22 @@ async function generateAiSheet(key) {
 
   const data = await response.json();
   if (!data.sheet) throw new Error("API response did not contain a sheet");
+  normalizeSheetForUi(data.sheet);
   els.cacheStatus.textContent = cacheStatusForSheet(data.sheet, data.cacheHit ? "Supabase cache" : "Supabase cache");
   return data.sheet;
 }
 
 function renderSheet() {
   const sheet = state.sheet;
-  els.sheetSubtitle.textContent = `${sheet.title} · ${sheet.goal}`;
+  normalizeSheetForUi(sheet);
+  els.sheetSubtitle.textContent = sheetSubtitle(sheet);
   updateReviewUi();
   els.sheetContainer.className = "";
   els.sheetContainer.innerHTML = [
-    renderSection("Spørsmål", sheet.questions),
-    renderSection("Undersøkelser", sheet.examinations)
+    renderTriageIntro(sheet),
+    renderSection("Må spørres", sheet.questions, "must-ask"),
+    renderSection("Må undersøkes", sheet.examinations, "must-do"),
+    renderSection("Valgfritt / kontekstavhengig", sheet.optionalItems, "optional")
   ].join("");
 
   document.querySelectorAll(".answer-button").forEach((button) => {
@@ -410,13 +439,14 @@ function sourceBasis() {
     promptVersion: PROMPT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     sourceVersion: SOURCE_VERSION,
-    templateVersion: SHEET_VERSION
+    templateVersion: SHEET_VERSION,
+    firstEpisode: firstEpisodeValue()
   };
 }
 
 function isCurrentSourceBasis(existingBasis, currentBasis) {
   if (!existingBasis || !currentBasis) return false;
-  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
+  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion", "firstEpisode"]
     .every((key) => existingBasis[key] === currentBasis[key]);
 }
 
@@ -428,12 +458,28 @@ function stableHash(text) {
   return Math.abs(hash).toString(36);
 }
 
-function renderSection(title, items) {
-  return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
+function renderTriageIntro(sheet) {
+  const label = sheet.firstEpisode ? "Første episode / første gang" : "Tilbakevendende episode";
+  const focus = sheet.firstEpisode
+    ? sheet.firstEpisodeFocus
+    : "Bruk minimumslisten raskt, og sammenlign med tidligere episoder der det er relevant.";
+  return `<div class="triage-intro">
+    <span>${escapeHtml(label)}</span>
+    <strong>15-minutters triagefokus</strong>
+    <p>${escapeHtml(focus)}</p>
+  </div>`;
 }
 
-function renderItem(entry) {
-  return `<article class="item-card">
+function renderSection(title, items, type) {
+  if (!items.length) return "";
+  return `<div class="sheet-section ${type}">
+    <h3>${escapeHtml(title)} <span>${items.length}</span></h3>
+    ${items.map((entry) => renderItem(entry, type)).join("")}
+  </div>`;
+}
+
+function renderItem(entry, type) {
+  return `<article class="item-card ${type}">
     <div class="item-title">
       <strong>${escapeHtml(entry.label)}</strong>
       <span>${escapeHtml(entry.why)}</span>
@@ -450,7 +496,7 @@ function updateCompletion() {
     els.completionStatus.textContent = "0% utfylt";
     els.assess.disabled = true;
     els.assess.hidden = true;
-    els.stickyCount.textContent = "0 / 0 spørsmål besvart";
+    els.stickyCount.textContent = "0 / 0 punkter fylt";
     els.stickyPercent.textContent = "0% utfylt";
     els.stickyAssess.disabled = true;
     els.stickyAssess.hidden = true;
@@ -462,7 +508,7 @@ function updateCompletion() {
   els.completionStatus.textContent = `${percent}% utfylt`;
   els.assess.hidden = !hasStartedAnswers;
   els.assess.disabled = !hasStartedAnswers;
-  els.stickyCount.textContent = `${completed} / ${total} spørsmål besvart`;
+  els.stickyCount.textContent = `${completed} / ${total} punkter fylt`;
   els.stickyPercent.textContent = `${percent}% utfylt`;
   els.stickyAssess.hidden = !hasStartedAnswers;
   els.stickyAssess.disabled = els.assess.disabled;
@@ -493,18 +539,27 @@ function riskText(risk) {
 }
 
 function buildReport() {
-  const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
-    const answer = state.answers[entry.id] || {};
-    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
-  }).join("\n");
+  const questionEntries = formatReportEntries(state.sheet.questions);
+  const examinationEntries = formatReportEntries(state.sheet.examinations);
+  const optionalEntries = formatReportEntries(state.sheet.optionalItems.filter((entry) => {
+    const answer = state.answers[entry.id];
+    return answer && (answer.choice || answer.text);
+  }));
 
   return `Journalnotat - ${state.sheet.title}
 
 Problemstilling:
 ${els.caseInput.value.trim()}
 
-Opplysninger og funn:
-${entries}
+Episode:
+${state.sheet.firstEpisode ? "Første episode / første gang dette skjer med pasienten." : "Tilbakevendende episode / kjent fra tidligere."}
+
+Anamnese - må spørres:
+${questionEntries}
+
+Undersøkelse - må gjøres:
+${examinationEntries}
+${optionalEntries ? `\nValgfritt / kontekstavhengig utfylt:\n${optionalEntries}\n` : ""}
 
 Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
@@ -540,7 +595,7 @@ function resetReport() {
 }
 
 function getCompletion() {
-  const allItems = state.sheet ? [...state.sheet.questions, ...state.sheet.examinations] : [];
+  const allItems = state.sheet ? sheetItems(state.sheet) : [];
   const completed = allItems.filter((entry) => {
     const answer = state.answers[entry.id];
     return answer && (answer.choice || answer.text);
@@ -551,6 +606,38 @@ function getCompletion() {
     total: allItems.length,
     percent: allItems.length ? Math.round((completed / allItems.length) * 100) : 0
   };
+}
+
+function firstEpisodeValue() {
+  const selected = Array.from(els.firstEpisode).find((input) => input.checked);
+  return selected?.value === "no" ? "recurring" : "first";
+}
+
+function setFirstEpisode(isFirst) {
+  els.firstEpisode.forEach((input) => {
+    input.checked = isFirst ? input.value === "yes" : input.value === "no";
+  });
+}
+
+function normalizeSheetForUi(sheet) {
+  sheet.firstEpisode = sheet.firstEpisode ?? firstEpisodeValue() === "first";
+  sheet.firstEpisodeFocus = sheet.firstEpisodeFocus || "Minimumsliste for 15-minutters første kontakt med rask avklaring av alvorlighet.";
+  sheet.questions = Array.isArray(sheet.questions) ? sheet.questions : [];
+  sheet.examinations = Array.isArray(sheet.examinations) ? sheet.examinations : [];
+  sheet.optionalItems = Array.isArray(sheet.optionalItems) ? sheet.optionalItems : [];
+  sheet.followUp = Array.isArray(sheet.followUp) ? sheet.followUp : [];
+}
+
+function sheetItems(sheet) {
+  normalizeSheetForUi(sheet);
+  return [...sheet.questions, ...sheet.examinations, ...sheet.optionalItems];
+}
+
+function formatReportEntries(items) {
+  return items.map((entry) => {
+    const answer = state.answers[entry.id] || {};
+    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
+  }).join("\n");
 }
 
 function updateStickyPosition() {

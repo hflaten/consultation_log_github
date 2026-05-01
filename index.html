@@ -64,6 +64,19 @@
                 <option value="oppfølging">Oppfølging</option>
               </select>
             </label>
+            <fieldset class="episode-field">
+              <legend>Første episode?</legend>
+              <div class="segmented-control" role="radiogroup" aria-label="Første episode">
+                <label>
+                  <input type="radio" name="firstEpisode" value="yes" checked>
+                  <span>Ja, første gang</span>
+                </label>
+                <label>
+                  <input type="radio" name="firstEpisode" value="no">
+                  <span>Nei, tilbakevendende</span>
+                </label>
+              </div>
+            </fieldset>
           </div>
 
           <label class="full-label">
@@ -131,7 +144,7 @@
 
     <aside id="stickyActionBar" class="sticky-action-bar" aria-label="Hurtighandlinger for konsultasjonsarket" aria-hidden="true">
       <div class="sticky-progress">
-        <span id="stickyCompletionCount">0 / 0 spørsmål besvart</span>
+        <span id="stickyCompletionCount">0 / 0 punkter fylt</span>
         <strong id="stickyCompletionPercent">0% utfylt</strong>
       </div>
       <div class="sticky-actions">
