@@ -1,6 +1,13 @@
-# ConsultAssist QA examples for BRC-43
+# ConsultAssist QA examples for BRC-39/BRC-43
 
 These scenarios cover first-episode triage, a problem that should be handled quickly, and a case that can wait with patient registration and diary advice. Run them in the ConsultAssist UI before release, using Norwegian Bokmål text with characters such as `æ`, `ø`, and `å` preserved in generated output.
+
+Privacy checks for each scenario:
+
+- Do not enter name, fødselsnummer, phone, email, address, or other direct identifiers.
+- Confirm the AI request receives an age band and sanitized clinical presentation, not exact age or patient-identifiable contact details.
+- Caching/storage policy: confirm localStorage/Supabase cache entries are reusable sheet templates only. Completed answers and generated journal notes must not be cached as reusable templates.
+- Confirm the generated journal note is editable before copy/export with **Kopier** or **Eksporter PDF**.
 
 ## General verification steps
 

@@ -179,6 +179,13 @@ p {
   margin-bottom: 10px;
 }
 
+.control-note {
+  color: var(--primary-strong);
+  font-size: 0.92rem;
+  font-weight: 700;
+  margin-top: 12px;
+}
+
 .flow-steps {
   display: flex;
   flex-wrap: wrap;

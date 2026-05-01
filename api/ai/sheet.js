@@ -59,12 +59,36 @@ function validateInput(input) {
     }
   }
 
+  if (containsDirectIdentifier(input.presentation) || containsDirectIdentifier(input.cacheKey)) {
+    const error = new Error("Input contains direct identifier");
+    error.statusCode = 400;
+    error.publicMessage = "Remove direct patient identifiers before using AI";
+    throw error;
+  }
+
+  if (/^\d{1,3}$/.test(input.age.trim())) {
+    const error = new Error("Exact age should not be sent to AI");
+    error.statusCode = 400;
+    error.publicMessage = "Use an age band before using AI";
+    throw error;
+  }
+
   if (input.presentation.length > 3000 || input.prompt.length > 5000) {
     const error = new Error("Input too long");
     error.statusCode = 413;
     error.publicMessage = "Input is too long";
     throw error;
   }
+}
+
+function containsDirectIdentifier(text) {
+  return [
+    /\b\d{6}\s?\d{5}\b/,
+    /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i,
+    /\b(?:\+47\s?)?(?:\d[\s-]?){8,}\b/,
+    /\b(?:navn|pasienten heter|heter)\s*[:=]?\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.'-]+(?:\s+[A-ZÆØÅ][A-Za-zÆØÅæøå.'-]+){0,3}/,
+    /\b(?:adresse|bor i|bor på)\s*[:=]?\s+[^.,;\n]+/i
+  ].some((pattern) => pattern.test(text));
 }
 
 function validateReviewInput(input) {
@@ -189,7 +213,8 @@ async function generateSheet(input) {
                 language: "nb-NO",
                 presentation: input.presentation,
                 prompt: input.prompt,
-                cacheKey: input.cacheKey
+                cacheKey: input.cacheKey,
+                privacy: "Input is de-identified/coarsened. Generate only reusable sheet templates, not completed patient consults."
               })
             }
           ]
