@@ -153,6 +153,48 @@ p {
   padding: 18px;
 }
 
+.input-panel.is-collapsed {
+  padding: 12px 18px;
+}
+
+.input-panel.is-collapsed .setup-form {
+  display: none;
+}
+
+.input-panel.is-collapsed .panel-head {
+  display: none;
+}
+
+.setup-summary {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.setup-summary[hidden] {
+  display: none;
+}
+
+.setup-summary-text {
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.text-button {
+  background: transparent;
+  color: var(--teal-strong);
+  min-height: auto;
+  padding: 4px 0;
+  text-decoration: underline;
+}
+
+.text-button:hover {
+  background: transparent;
+  color: var(--teal);
+}
+
 .panel-head {
   align-items: start;
   display: flex;
@@ -224,6 +266,18 @@ textarea {
   display: grid;
   gap: 18px;
   grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+}
+
+.sheet-layout.is-consultation-mode {
+  grid-template-columns: 1fr;
+}
+
+.sheet-layout.is-consultation-mode .sheet-panel {
+  order: 1;
+}
+
+.sheet-layout.is-consultation-mode .summary-panel {
+  order: 2;
 }
 
 .wide-button {
@@ -342,7 +396,8 @@ textarea {
   }
 
   .topbar,
-  .panel-head {
+  .panel-head,
+  .setup-summary {
     align-items: stretch;
     flex-direction: column;
   }
