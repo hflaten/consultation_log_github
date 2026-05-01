@@ -52,6 +52,23 @@ function validateInput(input) {
     error.publicMessage = "Input is too long";
     throw error;
   }
+
+  if (containsDirectIdentifier(input.presentation)) {
+    const error = new Error("Presentation contains direct identifier");
+    error.statusCode = 400;
+    error.publicMessage = "Remove direct patient identifiers before generating a sheet";
+    throw error;
+  }
+}
+
+function containsDirectIdentifier(text) {
+  return [
+    /\b\d{11}\b/,
+    /\b\d{6}\s?\d{5}\b/,
+    /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+    /(?:\+47\s?)?(?:\d\s?){8}\b/,
+    /\b(navn|pasientnavn|fødselsnummer|personnummer|telefon|e-post)\s*[:=]\s*[^\n,;.]+/i
+  ].some((pattern) => pattern.test(text));
 }
 
 async function readCachedSheet(cacheKey) {

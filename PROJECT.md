@@ -63,10 +63,18 @@ Security notes:
 - Storage uploads require RLS policies. Upsert requires insert, select, and update permissions.
 - Supabase-backed shared template caching is wired through the Vercel Function, not anonymous storage policies.
 
+## Privacy and clinical-control notes
+
+- The browser calls `/api/ai/sheet` only for reusable sheet templates. The request uses age band, sex, sheet type, coarse topic, care setting, language, and de-identified clinical presentation text.
+- Direct identifiers such as national identity numbers, phone numbers, email addresses, and labelled names are stripped in the browser before the AI call; the Vercel Function also rejects common direct identifiers if they are still present.
+- Completed answer sets and generated journal notes remain in the browser session for clinician review/editing. They are not written to Supabase or sent to OpenAI by the current workflow.
+- Shared cache entries are reusable consultation sheet templates only. Patient-specific completed consultations must not be cached unless a separate privacy decision and implementation explicitly allow it.
+- The generated report textarea is editable before copy or print/PDF export. Clinicians remain responsible for all clinical decisions and journal text.
+
 ## Current MVP
 
 - `index.html`: GP-facing workflow.
 - `styles.css`: responsive interface and print/PDF layout.
 - `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
 
-The current MVP first checks browser localStorage, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase.
+The current MVP first checks browser localStorage for a reusable sheet template, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes only the generated template back to Supabase.
