@@ -402,6 +402,25 @@ textarea {
   margin-top: 18px;
 }
 
+.anamnese-section {
+  gap: 14px;
+}
+
+.question-group {
+  background: #fbfdfd;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.question-group h4 {
+  color: var(--primary-strong);
+  font-size: 0.95rem;
+  margin: 0;
+}
+
 .item-card {
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -417,12 +436,25 @@ textarea {
 }
 
 .item-title strong {
+  display: block;
   line-height: 1.35;
 }
 
 .item-title span {
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.item-title .question-type {
+  background: var(--primary-soft);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 800;
+  margin-top: 6px;
+  padding: 3px 8px;
+  text-transform: uppercase;
 }
 
 .button-row {
@@ -455,6 +487,16 @@ textarea {
 .answer-button.active:hover {
   background: var(--primary-strong);
   border-color: var(--primary-strong);
+}
+
+.free-text-label {
+  gap: 6px;
+}
+
+.free-text-label span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .report-panel textarea {
