@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://consultassist.vercel.app/schemas/consultassist-sheet-v2.json",
+  "title": "ConsultAssist consultation sheet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "title",
+    "goal",
+    "redFlags",
+    "questions",
+    "examinations",
+    "followUp"
+  ],
+  "properties": {
+    "title": {
+      "type": "string"
+    },
+    "goal": {
+      "type": "string"
+    },
+    "redFlags": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 8,
+      "items": {
+        "type": "string"
+      }
+    },
+    "questions": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 8,
+      "items": {
+        "$ref": "#/$defs/consultationItem"
+      }
+    },
+    "examinations": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 6,
+      "items": {
+        "$ref": "#/$defs/consultationItem"
+      }
+    },
+    "followUp": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 6,
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "$defs": {
+    "consultationItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "why",
+        "buttons",
+        "placeholder",
+        "sourceBasis",
+        "clinicianVerificationNote"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "why": {
+          "type": "string"
+        },
+        "buttons": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 5,
+          "items": {
+            "type": "string"
+          }
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "sourceBasis": {
+          "type": "string",
+          "enum": [
+            "national_guideline",
+            "helsebiblioteket",
+            "nel_style",
+            "clinical_method",
+            "generated_support"
+          ]
+        },
+        "clinicianVerificationNote": {
+          "type": "string",
+          "description": "Short note explaining what the clinician should verify before relying on the generated item. Empty only when no extra verification is needed beyond ordinary clinical judgement."
+        }
+      }
+    }
+  }
+}

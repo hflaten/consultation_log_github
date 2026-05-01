@@ -1,6 +1,6 @@
-const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
-const SCHEMA_VERSION = "v1";
+const SHEET_VERSION = "v2";
+const PROMPT_VERSION = "v2";
+const SCHEMA_VERSION = "v2";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
@@ -9,8 +9,22 @@ const SUPABASE_STORAGE_BUCKETS = {
   sheetTemplates: "consultassist-sheet-templates",
   reportExports: "consultassist-report-exports"
 };
+const SOURCE_BASIS_LABELS = {
+  national_guideline: "Nasjonal fagkilde",
+  helsebiblioteket: "Helsebiblioteket",
+  nel_style: "Allmennpraksis-mønster",
+  clinical_method: "Klinisk metode",
+  generated_support: "AI-støtte"
+};
 
-const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
+const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en praktisk minimumsliste for en 15-minutters konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging i norsk allmennpraksis.
+
+Kildehierarki og klinisk ramme:
+1. Prioriter Nasjonale faglige retningslinjer, veiledere, faglige råd, pasientforløp og pakkeforløp fra Helsedirektoratet når relevant og kjent.
+2. Bruk Helsebiblioteket som indeks/tilgangspunkt for nasjonale retningslinjer og fagressurser når relevant.
+3. Bruk generelle NEL-lignende arbeidsmønstre for anamnese, forslag til spørsmål, røde flagg og undersøkelser bare som stil/arbeidsflyt der lisensiert eller direkte kildeinnhold ikke er tilgjengelig.
+4. Bruk strukturert klinisk metode/anamnese når kildespesifikk veiledning ikke er tilgjengelig.
+5. Bruk generert støtte bare til formulering, prioritering og praktisk organisering.
 
 Input:
 - Pasient: alder, kjønn, relevant kontekst
@@ -23,17 +37,21 @@ Output som JSON:
 - sheet_title
 - clinical_goal
 - red_flags: korte punkter
-- questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder }
-- examinations: liste med { id, label, answer_buttons, free_text_placeholder }
+- questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder, sourceBasis, clinicianVerificationNote }
+- examinations: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder, sourceBasis, clinicianVerificationNote }
 - initial_assessment_rules: kort veiledning for alvorlighetsgrad
 - follow_up_options: anbefalte neste steg
 - journal_note_template: struktur for ferdig journalnotat
 
 Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
+- Hold arket stramt nok til å brukes i en vanlig 15-minutters fastlegekonsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
-- Marker røde flagg og når akutt vurdering bør vurderes.`;
+- Marker røde flagg og når akutt vurdering bør vurderes.
+- Sett sourceBasis per spørsmål/undersøkelse til én av: national_guideline, helsebiblioteket, nel_style, clinical_method, generated_support.
+- Bruk clinicianVerificationNote til kort merknad når legen bør verifisere mot spesifikk lokal/nasjonal kilde, eller tom streng når vanlig klinisk skjønn er tilstrekkelig.
+- Ikke påstå at teksten siterer NEL, Helsedirektoratet, Helsebiblioteket eller en retningslinje med mindre nøyaktig kilde er tilgjengelig og lisensiert.`;
 
 const dizzinessTemplate = {
   title: "Svimmelhet - minimumsliste",
@@ -87,7 +105,8 @@ const genericTemplate = {
   examinations: [
     item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov."),
     item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn."),
-    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.")
+    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet."),
+    item("e4", "Sikkerhetsnett og hastegrad", "Sikrer tydelig plan ved forverring eller usikker alvorlighet.", ["Rutine", "Rask kontroll", "Akutt vurdering"], "Hva skal utløse ny kontakt eller akutt hjelp?")
   ],
   followUp: [
     "Akutt tiltak ved røde flagg eller påvirket pasient.",
@@ -174,8 +193,8 @@ window.addEventListener("resize", updateStickyPosition);
 updateFlowHint();
 updateStickyPosition();
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function item(id, label, why, buttons, placeholder, sourceBasis = "clinical_method", clinicianVerificationNote = "") {
+  return { id, label, why, buttons, placeholder, sourceBasis, clinicianVerificationNote };
 }
 
 function normalizeTopic(text) {
@@ -433,16 +452,29 @@ function renderSection(title, items) {
 }
 
 function renderItem(entry) {
+  const sourceBasis = normalizedSourceBasis(entry.sourceBasis);
+  const verificationNote = entry.clinicianVerificationNote || "";
   return `<article class="item-card">
     <div class="item-title">
-      <strong>${escapeHtml(entry.label)}</strong>
-      <span>${escapeHtml(entry.why)}</span>
+      <div>
+        <strong>${escapeHtml(entry.label)}</strong>
+        <span>${escapeHtml(entry.why)}</span>
+      </div>
+      <span class="source-chip" title="${escapeHtml(verificationNote || "Kilde/proveniens for punktet.")}" aria-label="Kildegrunnlag: ${escapeHtml(sourceBasisLabel(sourceBasis))}">${escapeHtml(sourceBasisLabel(sourceBasis))}</span>
     </div>
     <div class="button-row">
       ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
     </div>
     <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
   </article>`;
+}
+
+function normalizedSourceBasis(value) {
+  return Object.prototype.hasOwnProperty.call(SOURCE_BASIS_LABELS, value) ? value : "clinical_method";
+}
+
+function sourceBasisLabel(value) {
+  return SOURCE_BASIS_LABELS[normalizedSourceBasis(value)];
 }
 
 function updateCompletion() {
