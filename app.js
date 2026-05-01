@@ -106,6 +106,7 @@ const els = {
   generate: document.querySelector("#generateSheet"),
   example: document.querySelector("#loadExample"),
   clear: document.querySelector("#clearSession"),
+  finish: document.querySelector("#finishConsultation"),
   cacheStatus: document.querySelector("#cacheStatus"),
   completionStatus: document.querySelector("#completionStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
@@ -128,6 +129,7 @@ els.example.addEventListener("click", () => {
 });
 els.clear.addEventListener("click", clearAnswers);
 els.assess.addEventListener("click", assess);
+els.finish.addEventListener("click", finishConsultation);
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
 
@@ -264,7 +266,7 @@ function renderItem(entry) {
 
 function updateCompletion() {
   if (!state.sheet) {
-    els.completionStatus.textContent = "0% utfylt";
+    els.completionStatus.textContent = "0 / 0 punkter besvart";
     els.assess.disabled = true;
     return;
   }
@@ -273,8 +275,7 @@ function updateCompletion() {
     const answer = state.answers[entry.id];
     return answer && (answer.choice || answer.text);
   }).length;
-  const percent = Math.round((completed / allItems.length) * 100);
-  els.completionStatus.textContent = `${percent}% utfylt`;
+  els.completionStatus.textContent = `${completed} / ${allItems.length} punkter besvart`;
   els.assess.disabled = completed < Math.ceil(allItems.length * 0.5);
 }
 
@@ -290,6 +291,7 @@ function assess() {
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
+  els.finish.hidden = false;
 }
 
 function riskText(risk) {
@@ -341,6 +343,12 @@ function resetReport() {
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
+  els.finish.hidden = true;
+}
+
+function finishConsultation() {
+  els.report.focus();
+  els.cacheStatus.textContent = "Vurdering klar for journalføring";
 }
 
 function escapeHtml(value) {
