@@ -109,14 +109,19 @@
           <div class="panel-head">
             <div>
               <h2 id="report-heading">Journalnotat</h2>
-              <p>Kopier teksten eller bruk utskrift/PDF fra nettleseren.</p>
+              <p>Legg inn plan, juster notatet ved behov, og kopier teksten til journalsystemet.</p>
             </div>
             <div class="report-actions">
               <button id="copyReport" class="secondary-button" type="button" disabled>Kopier</button>
               <button id="exportPdf" type="button" disabled>Eksporter PDF</button>
             </div>
           </div>
-          <textarea id="reportOutput" rows="12" placeholder="Journalnotat vises her etter vurdering."></textarea>
+          <label class="full-label report-plan-label">
+            Oppfølgingsplan
+            <textarea id="followUpPlanInput" rows="3" placeholder="For eksempel kontroll, prøver, henvisning, egenregistrering eller sikkerhetsnett."></textarea>
+          </label>
+          <p id="copyStatus" class="copy-status" role="status" aria-live="polite"></p>
+          <textarea id="reportOutput" class="report-output" rows="12" placeholder="Journalnotat vises her etter vurdering."></textarea>
         </section>
       </section>
     </main>
