@@ -1,4 +1,5 @@
 const SHEET_VERSION = "v1";
+const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
 const SUPABASE_STORAGE_BUCKETS = {
   sheetTemplates: "consultassist-sheet-templates",
@@ -110,6 +111,8 @@ const els = {
   generate: document.querySelector("#generateSheet"),
   example: document.querySelector("#loadExample"),
   clear: document.querySelector("#clearSession"),
+  flowHint: document.querySelector("#flowHint"),
+  dismissFlowHint: document.querySelector("#dismissFlowHint"),
   cacheStatus: document.querySelector("#cacheStatus"),
   completionStatus: document.querySelector("#completionStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
@@ -136,8 +139,13 @@ els.example.addEventListener("click", () => {
   els.sex.value = "mann";
   els.sheetType.value = "minimumsliste";
   els.caseInput.value = "Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.";
+  updateFlowHint();
 });
 els.clear.addEventListener("click", clearAnswers);
+els.dismissFlowHint.addEventListener("click", () => {
+  localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
+  updateFlowHint();
+});
 els.assess.addEventListener("click", assess);
 els.stickyAssess.addEventListener("click", assess);
 els.stickyViewAssessment.addEventListener("click", scrollToAssessment);
@@ -147,8 +155,13 @@ els.stickyDismiss.addEventListener("click", () => {
 });
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
+[els.age, els.sex, els.sheetType, els.caseInput].forEach((input) => {
+  input.addEventListener("input", updateFlowHint);
+  input.addEventListener("change", updateFlowHint);
+});
 window.addEventListener("scroll", updateStickyPosition, { passive: true });
 window.addEventListener("resize", updateStickyPosition);
+updateFlowHint();
 updateStickyPosition();
 
 function item(id, label, why, buttons, placeholder) {
@@ -208,6 +221,7 @@ async function generateSheet() {
   renderSheet();
   updateCompletion();
   resetReport();
+  updateFlowHint();
 }
 
 async function generateAiSheet(key) {
@@ -287,17 +301,22 @@ function updateCompletion() {
   if (!state.sheet) {
     els.completionStatus.textContent = "0% utfylt";
     els.assess.disabled = true;
+    els.assess.hidden = true;
     els.stickyCount.textContent = "0 / 0 spørsmål besvart";
     els.stickyPercent.textContent = "0% utfylt";
     els.stickyAssess.disabled = true;
+    els.stickyAssess.hidden = true;
     updateStickyActionBar();
     return;
   }
   const { completed, total, percent } = getCompletion();
+  const hasStartedAnswers = completed > 0;
   els.completionStatus.textContent = `${percent}% utfylt`;
-  els.assess.disabled = completed < Math.ceil(total * 0.5);
+  els.assess.hidden = !hasStartedAnswers;
+  els.assess.disabled = !hasStartedAnswers;
   els.stickyCount.textContent = `${completed} / ${total} spørsmål besvart`;
   els.stickyPercent.textContent = `${percent}% utfylt`;
+  els.stickyAssess.hidden = !hasStartedAnswers;
   els.stickyAssess.disabled = els.assess.disabled;
   updateStickyActionBar();
 }
@@ -365,7 +384,7 @@ function clearAnswers() {
 
 function resetReport() {
   els.risk.className = "risk-panel muted";
-  els.risk.textContent = "Fyll ut arket for å lage vurdering.";
+  els.risk.textContent = state.sheet ? "Fyll ut noen svar i arket for å lage vurdering." : "Lag et konsultasjonsark først, fyll det ut, og hent deretter vurdering.";
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
@@ -399,6 +418,16 @@ function updateStickyActionBar() {
   els.stickyBar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
   document.body.classList.toggle("has-sticky-action-bar", shouldShow);
   els.stickyViewAssessment.hidden = !state.assessment;
+}
+
+function updateFlowHint() {
+  if (!els.flowHint) return;
+
+  const dismissed = localStorage.getItem(FLOW_HINT_DISMISSED_KEY) === "true";
+  const hasCachedSheet = Boolean(localStorage.getItem(cacheKey()));
+  const shouldShow = !dismissed && !state.sheet && !hasCachedSheet;
+
+  els.flowHint.hidden = !shouldShow;
 }
 
 function scrollToAssessment() {

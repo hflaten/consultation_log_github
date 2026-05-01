@@ -15,6 +15,7 @@
   --amber-soft: #fff3d6;
   --red-soft: #ffe8e5;
   --shadow: 0 16px 40px rgba(24, 40, 48, 0.08);
+  --focus-ring: 0 0 0 3px rgba(15, 118, 110, 0.2);
 }
 
 * {
@@ -84,6 +85,7 @@ button:disabled {
 }
 
 .topbar,
+.flow-hint,
 .input-panel,
 .summary-panel,
 .sheet-panel,
@@ -147,6 +149,41 @@ p {
   color: var(--primary-strong);
   font-size: 0.9rem;
   font-weight: 700;
+  padding: 8px 12px;
+}
+
+.flow-hint {
+  align-items: flex-start;
+  background: linear-gradient(135deg, #ffffff 0%, #eef8f6 100%);
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 18px;
+}
+
+.flow-hint[hidden] {
+  display: none;
+}
+
+.flow-hint h2 {
+  margin-bottom: 10px;
+}
+
+.flow-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.flow-steps li {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--primary-soft-strong);
+  border-radius: 999px;
+  color: var(--primary-strong);
+  font-size: 0.9rem;
   padding: 8px 12px;
 }
 
@@ -246,6 +283,12 @@ textarea {
   color: var(--muted);
 }
 
+.risk-panel.muted strong {
+  color: var(--ink);
+  display: block;
+  margin-bottom: 4px;
+}
+
 .risk-panel.low {
   background: var(--green-soft);
   color: #145c45;
@@ -270,6 +313,35 @@ textarea {
   min-height: 220px;
   justify-content: center;
   text-align: center;
+}
+
+.empty-state-content {
+  align-items: center;
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  max-width: 340px;
+  padding: 20px;
+}
+
+.empty-state-content strong {
+  color: var(--ink);
+}
+
+.empty-state-arrow {
+  align-items: center;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-soft-strong);
+  border-radius: 999px;
+  box-shadow: var(--focus-ring);
+  color: var(--primary-strong);
+  display: inline-flex;
+  font-size: 1.6rem;
+  font-weight: 800;
+  height: 48px;
+  justify-content: center;
+  line-height: 1;
+  width: 48px;
 }
 
 .sheet-section {
@@ -411,9 +483,14 @@ textarea {
   }
 
   .topbar,
+  .flow-hint,
   .panel-head {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .flow-steps {
+    display: grid;
   }
 
   .status-strip {
