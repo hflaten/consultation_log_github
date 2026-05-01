@@ -3,6 +3,15 @@ const SHEET_BUCKET = "consultassist-sheet-templates";
 const REVIEW_METADATA_VERSION = "review-v1";
 const REVIEWED_PREFIX = "reviewed";
 const DRAFT_PREFIX = "drafts";
+const SOURCE_BASIS_VALUES = [
+  "national_guideline",
+  "helsebiblioteket",
+  "nel_style",
+  "clinical_method",
+  "generated_support"
+];
+const DEFAULT_SOURCE_BASIS = "clinical_method";
+const DEFAULT_VERIFICATION_NOTE = "Kliniker må verifisere mot oppdatert norsk kilde ved behov.";
 
 module.exports = async function handler(req, res) {
   setJsonHeaders(res);
@@ -169,11 +178,15 @@ async function generateSheet(input) {
       model: OPENAI_MODEL,
       max_output_tokens: 3500,
       instructions: [
-        "Du lager strukturerte konsultasjonsark for fastleger i Norge.",
+        "Du lager strukturerte konsultasjonsark for fastleger i norsk allmennpraksis.",
         "Svar kun med JSON som matcher skjemaet.",
         "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
         "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
-        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging.",
+        "Prioriter kildegrunnlag slik: nasjonale faglige retningslinjer/veiledere/faglige råd/pasientforløp/pakkeforløp fra Helsedirektoratet, deretter Helsebiblioteket som inngang til nasjonale og faglige ressurser, deretter NEL-lignende arbeidsflyt for anamnese/spørsmål/røde flagg/undersøkelser uten å hevde sitat eller lisensiert innhold, deretter strukturert klinisk metode/anamnese.",
+        "Hold arket praktisk for en 15-minutters konsultasjon: prioriter de viktigste spørsmålene og undersøkelsene fremfor lange sjekklister.",
+        "Hver spørsmål- og undersøkelsesrad skal ha sourceBasis som en av national_guideline, helsebiblioteket, nel_style, clinical_method eller generated_support, og clinicianVerificationNote.",
+        "Ikke påstå at innhold er sitert fra NEL, Helsedirektoratet eller en retningslinje med mindre eksakt tilgjengelig og lisensiert kilde foreligger i input."
       ].join(" "),
       input: [
         {
@@ -239,8 +252,8 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: sheet.redFlags,
-    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
-    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder, entry.sourceBasis, entry.clinicianVerificationNote)),
+    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder, entry.sourceBasis, entry.clinicianVerificationNote)),
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
@@ -258,6 +271,8 @@ function normalizeCachedSheet(sheet, cacheKey) {
   return {
     ...sheet,
     cacheKey: sheet.cacheKey || cacheKey,
+    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => normalizeItem(entry, `q${index + 1}`)) : [],
+    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => normalizeItem(entry, `e${index + 1}`)) : [],
     review: createReviewMetadata({
       status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
       reviewer: sheet.review?.reviewer || null,
@@ -274,8 +289,8 @@ function markSheetReviewed(sheet, input) {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
-    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
-    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "", entry.sourceBasis, entry.clinicianVerificationNote)) : [],
+    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "", entry.sourceBasis, entry.clinicianVerificationNote)) : [],
     followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
@@ -308,15 +323,37 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
     .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function item(id, label, why, buttons, placeholder, sourceBasis, clinicianVerificationNote) {
+  const normalizedBasis = SOURCE_BASIS_VALUES.includes(sourceBasis) ? sourceBasis : DEFAULT_SOURCE_BASIS;
+
+  return {
+    id,
+    label,
+    why,
+    buttons,
+    placeholder,
+    sourceBasis: normalizedBasis,
+    clinicianVerificationNote: clinicianVerificationNote || DEFAULT_VERIFICATION_NOTE
+  };
+}
+
+function normalizeItem(entry, fallbackId) {
+  return item(
+    entry.id || fallbackId,
+    entry.label || "",
+    entry.why || "",
+    Array.isArray(entry.buttons) ? entry.buttons : [],
+    entry.placeholder || "",
+    entry.sourceBasis,
+    entry.clinicianVerificationNote
+  );
 }
 
 function sheetJsonSchema() {
   const option = {
     type: "object",
     additionalProperties: false,
-    required: ["id", "label", "why", "buttons", "placeholder"],
+    required: ["id", "label", "why", "buttons", "placeholder", "sourceBasis", "clinicianVerificationNote"],
     properties: {
       id: { type: "string" },
       label: { type: "string" },
@@ -327,7 +364,9 @@ function sheetJsonSchema() {
         maxItems: 5,
         items: { type: "string" }
       },
-      placeholder: { type: "string" }
+      placeholder: { type: "string" },
+      sourceBasis: { type: "string", enum: SOURCE_BASIS_VALUES },
+      clinicianVerificationNote: { type: "string" }
     }
   };
 
@@ -347,19 +386,19 @@ function sheetJsonSchema() {
       questions: {
         type: "array",
         minItems: 5,
-        maxItems: 12,
+        maxItems: 8,
         items: option
       },
       examinations: {
         type: "array",
         minItems: 3,
-        maxItems: 10,
+        maxItems: 6,
         items: option
       },
       followUp: {
         type: "array",
         minItems: 3,
-        maxItems: 8,
+        maxItems: 6,
         items: { type: "string" }
       }
     }
