@@ -94,8 +94,12 @@ const genericTemplate = {
 const state = {
   sheet: null,
   answers: {},
-  assessment: null
+  assessment: null,
+  stickyDismissed: false,
+  nearTop: true
 };
+
+const STICKY_TOP_HIDE_OFFSET = 160;
 
 const els = {
   age: document.querySelector("#ageInput"),
@@ -110,11 +114,18 @@ const els = {
   completionStatus: document.querySelector("#completionStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
   sheetContainer: document.querySelector("#sheetContainer"),
+  summaryPanel: document.querySelector(".summary-panel"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
   report: document.querySelector("#reportOutput"),
   copy: document.querySelector("#copyReport"),
-  pdf: document.querySelector("#exportPdf")
+  pdf: document.querySelector("#exportPdf"),
+  stickyBar: document.querySelector("#stickyActionBar"),
+  stickyCount: document.querySelector("#stickyCompletionCount"),
+  stickyPercent: document.querySelector("#stickyCompletionPercent"),
+  stickyAssess: document.querySelector("#stickyAssessButton"),
+  stickyViewAssessment: document.querySelector("#stickyViewAssessment"),
+  stickyDismiss: document.querySelector("#dismissStickyBar")
 };
 
 els.prompt.value = defaultPrompt;
@@ -128,8 +139,17 @@ els.example.addEventListener("click", () => {
 });
 els.clear.addEventListener("click", clearAnswers);
 els.assess.addEventListener("click", assess);
+els.stickyAssess.addEventListener("click", assess);
+els.stickyViewAssessment.addEventListener("click", scrollToAssessment);
+els.stickyDismiss.addEventListener("click", () => {
+  state.stickyDismissed = true;
+  updateStickyActionBar();
+});
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
+window.addEventListener("scroll", updateStickyPosition, { passive: true });
+window.addEventListener("resize", updateStickyPosition);
+updateStickyPosition();
 
 function item(id, label, why, buttons, placeholder) {
   return { id, label, why, buttons, placeholder };
@@ -184,6 +204,7 @@ async function generateSheet() {
   }
   state.answers = {};
   state.assessment = null;
+  state.stickyDismissed = false;
   renderSheet();
   updateCompletion();
   resetReport();
@@ -266,19 +287,23 @@ function updateCompletion() {
   if (!state.sheet) {
     els.completionStatus.textContent = "0% utfylt";
     els.assess.disabled = true;
+    els.stickyCount.textContent = "0 / 0 spørsmål besvart";
+    els.stickyPercent.textContent = "0% utfylt";
+    els.stickyAssess.disabled = true;
+    updateStickyActionBar();
     return;
   }
-  const allItems = [...state.sheet.questions, ...state.sheet.examinations];
-  const completed = allItems.filter((entry) => {
-    const answer = state.answers[entry.id];
-    return answer && (answer.choice || answer.text);
-  }).length;
-  const percent = Math.round((completed / allItems.length) * 100);
+  const { completed, total, percent } = getCompletion();
   els.completionStatus.textContent = `${percent}% utfylt`;
-  els.assess.disabled = completed < Math.ceil(allItems.length * 0.5);
+  els.assess.disabled = completed < Math.ceil(total * 0.5);
+  els.stickyCount.textContent = `${completed} / ${total} spørsmål besvart`;
+  els.stickyPercent.textContent = `${percent}% utfylt`;
+  els.stickyAssess.disabled = els.assess.disabled;
+  updateStickyActionBar();
 }
 
 function assess() {
+  if (!state.sheet || els.assess.disabled) return;
   const values = Object.values(state.answers).map((answer) => `${answer.choice || ""} ${answer.text || ""}`.toLowerCase());
   const redFlagHits = values.filter((value) => /ja|avvik|synkope|bryst|pares|dobbeltsyn|tale|hodepine|hørselstap|patologisk/.test(value));
   const risk = redFlagHits.length >= 2 ? "high" : redFlagHits.length === 1 ? "medium" : "low";
@@ -290,6 +315,8 @@ function assess() {
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
+  updateStickyActionBar();
+  scrollToAssessment();
 }
 
 function riskText(risk) {
@@ -330,6 +357,7 @@ async function copyReport() {
 function clearAnswers() {
   state.answers = {};
   state.assessment = null;
+  state.stickyDismissed = false;
   if (state.sheet) renderSheet();
   updateCompletion();
   resetReport();
@@ -341,6 +369,41 @@ function resetReport() {
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
+  updateStickyActionBar();
+}
+
+function getCompletion() {
+  const allItems = state.sheet ? [...state.sheet.questions, ...state.sheet.examinations] : [];
+  const completed = allItems.filter((entry) => {
+    const answer = state.answers[entry.id];
+    return answer && (answer.choice || answer.text);
+  }).length;
+
+  return {
+    completed,
+    total: allItems.length,
+    percent: allItems.length ? Math.round((completed / allItems.length) * 100) : 0
+  };
+}
+
+function updateStickyPosition() {
+  state.nearTop = window.scrollY < STICKY_TOP_HIDE_OFFSET;
+  updateStickyActionBar();
+}
+
+function updateStickyActionBar() {
+  const { completed } = getCompletion();
+  const shouldShow = state.sheet && completed > 0 && !state.nearTop && !state.stickyDismissed;
+
+  els.stickyBar.classList.toggle("visible", shouldShow);
+  els.stickyBar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
+  document.body.classList.toggle("has-sticky-action-bar", shouldShow);
+  els.stickyViewAssessment.hidden = !state.assessment;
+}
+
+function scrollToAssessment() {
+  els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  els.assess.focus({ preventScroll: true });
 }
 
 function escapeHtml(value) {

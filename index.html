@@ -104,6 +104,18 @@
       </section>
     </main>
 
+    <aside id="stickyActionBar" class="sticky-action-bar" aria-label="Hurtighandlinger for konsultasjonsarket" aria-hidden="true">
+      <div class="sticky-progress">
+        <span id="stickyCompletionCount">0 / 0 spørsmål besvart</span>
+        <strong id="stickyCompletionPercent">0% utfylt</strong>
+      </div>
+      <div class="sticky-actions">
+        <button id="stickyViewAssessment" class="secondary-button" type="button" hidden>Vis vurdering</button>
+        <button id="stickyAssessButton" type="button" disabled>Lag vurdering</button>
+        <button id="dismissStickyBar" class="sticky-dismiss" type="button" aria-label="Skjul hurtighandlinger">×</button>
+      </div>
+    </aside>
+
     <script src="app.js"></script>
   </body>
 </html>
