@@ -1,5 +1,5 @@
-const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
+const SHEET_VERSION = "v2";
+const PROMPT_VERSION = "v2";
 const SCHEMA_VERSION = "v1";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
@@ -33,7 +33,8 @@ Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
-- Marker røde flagg og når akutt vurdering bør vurderes.`;
+- Marker røde flagg og når akutt vurdering bør vurderes.
+- Sluttvurderingen skal eksplisitt svare på om problemstillingen må håndteres raskt, kan vente, eller er uklar og trenger mer informasjon.`;
 
 const dizzinessTemplate = {
   title: "Svimmelhet - minimumsliste",
@@ -471,14 +472,12 @@ function updateCompletion() {
 
 function assess() {
   if (!state.sheet || els.assess.disabled) return;
-  const values = Object.values(state.answers).map((answer) => `${answer.choice || ""} ${answer.text || ""}`.toLowerCase());
-  const redFlagHits = values.filter((value) => /ja|avvik|synkope|bryst|pares|dobbeltsyn|tale|hodepine|hørselstap|patologisk/.test(value));
-  const risk = redFlagHits.length >= 2 ? "high" : redFlagHits.length === 1 ? "medium" : "low";
-  const title = risk === "high" ? "Høyere risiko / vurder akutt tiltak" : risk === "medium" ? "Moderat risiko / målrettet oppfølging" : "Lavere risiko ut fra utfylte svar";
+  const triage = buildTriageDecision();
+  const { risk, title } = triage;
 
-  state.assessment = { risk, title };
+  state.assessment = { risk, title, triage };
   els.risk.className = `risk-panel ${risk}`;
-  els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
+  els.risk.innerHTML = renderTriagePanel(triage);
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
@@ -487,9 +486,164 @@ function assess() {
 }
 
 function riskText(risk) {
-  if (risk === "high") return "Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
-  if (risk === "medium") return "Noen usikre eller avvikende svar foreligger. Vurder målrettet undersøkelse, supplerende tester og tydelig sikkerhetsnett.";
-  return "Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+  if (risk === "high") return "Må håndteres raskt. Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
+  if (risk === "medium") return "Uklart / trenger mer informasjon. Noen usikre eller manglende svar foreligger. Avklar mer og gi tydelig sikkerhetsnett.";
+  return "Kan vente. Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+}
+
+function buildTriageDecision() {
+  const allItems = [...state.sheet.questions, ...state.sheet.examinations];
+  const findings = allItems.map((entry) => {
+    const answer = state.answers[entry.id] || {};
+    const answerText = [answer.choice, answer.text].filter(Boolean).join(". ");
+    return {
+      entry,
+      answerText,
+      labelText: entry.label.toLowerCase(),
+      choiceText: (answer.choice || "").toLowerCase(),
+      freeText: (answer.text || "").toLowerCase(),
+      answerSearchable: answerText.toLowerCase()
+    };
+  }).filter((finding) => finding.answerText);
+
+  const redFlagFindings = findings.filter(isRedFlagFinding);
+  const uncertainFindings = findings.filter((finding) => /usikkert|uklart|ikke utført/.test(finding.answerSearchable));
+  const { completed, total, percent } = getCompletion();
+  const hasEnoughInformation = completed >= Math.max(3, Math.ceil(total * 0.5));
+
+  if (redFlagFindings.length > 0) {
+    return {
+      category: "må håndteres raskt",
+      risk: "high",
+      title: "Må håndteres raskt",
+      summary: "Utfylte svar inneholder funn eller symptomer som kan passe med røde flagg. Legen bør avklare hastegrad og vurdere akutt tiltak ut fra klinisk helhet.",
+      redFlagFindings,
+      immediateNextSteps: urgentNextSteps(redFlagFindings),
+      redFlagRationale: redFlagRationale(redFlagFindings),
+      followUpTiming: "Nå / samme dag, med lav terskel for konferering eller innleggelse ved påvirket pasient."
+    };
+  }
+
+  if (!hasEnoughInformation || uncertainFindings.length > 0) {
+    return {
+      category: "uklart / trenger mer informasjon",
+      risk: "medium",
+      title: "Uklart / trenger mer informasjon",
+      summary: "Det er ikke nok sikre opplysninger til å avgjøre om dette haster eller kan vente. Avklar manglende data før endelig plan.",
+      missingInformation: missingInformation(allItems),
+      clarifyingQuestions: clarifyingQuestions(uncertainFindings),
+      interimSafetyNet: "Gi midlertidig sikkerhetsnett: ta kontakt raskt ved forverring, nye røde flagg eller redusert allmenntilstand.",
+      followUpTiming: percent < 50 ? "Fullfør flere nøkkelopplysninger i konsultasjonen før beslutning." : "Ny vurdering når usikre eller ikke utførte punkter er avklart."
+    };
+  }
+
+  return {
+    category: "kan vente",
+    risk: "low",
+    title: "Kan vente",
+    summary: "Ingen tydelige røde flagg er registrert i utfylt ark. Oppfølging kan planlegges, forutsatt at legen vurderer pasienten som klinisk stabil.",
+    documentationAdvice: currentStateDocumentation(findings),
+    diaryAdvice: "Be pasienten registrere symptomdebut, varighet, utløsende faktorer, funksjonspåvirkning og effekt av tiltak/medisiner i en enkel dagbok.",
+    returnPrecautions: returnPrecautions(),
+    followUpTiming: "Avtal kontroll ved manglende bedring, vedvarende plager eller ny usikkerhet; tidligere kontakt ved forverring."
+  };
+}
+
+function isRedFlagFinding({ labelText, choiceText, freeText, answerSearchable }) {
+  const explicitRedFlagPattern = /synkope|brystsmer|tungpust|palpitasjon|arytmi|pares|lammelse|dobbeltsyn|talevansk|ataksi|ny kraftig hodepine|hørselstap|nakkestiv|sirkulatorisk|dehydrering|falltendens|akutt funksjonstap|rask forverring|sterke smerter|påvirket allmenntilstand|alvorlig infeksjon/;
+  if (explicitRedFlagPattern.test(freeText) && !hasNegatedRedFlag(freeText)) return true;
+  if (explicitRedFlagPattern.test(choiceText) && !/ingen|nei|normal|negativ/.test(choiceText)) return true;
+
+  const abnormalChoice = /\bavvik\b|patologisk|positiv/.test(answerSearchable);
+  const highSignalLabel = /nevrolog|kardiopulmon|vitale|ekg|allmenntilstand|ortostatisk|undersøkelse/.test(labelText);
+  if (abnormalChoice && highSignalLabel) return true;
+
+  const yesChoice = /\bja\b/.test(choiceText);
+  const yesToRedFlagQuestion = /nevrolog|kardiopulmon|risiko|ledsagende symptomer/.test(labelText);
+  return yesChoice && yesToRedFlagQuestion;
+}
+
+function hasNegatedRedFlag(text) {
+  return /\b(ingen|ikke|nei|benekter|uten)\b.{0,28}(synkope|brystsmer|tungpust|palpitasjon|arytmi|pares|lammelse|dobbeltsyn|talevansk|ataksi|hodepine|hørselstap|nakkestiv|dehydrering|falltendens|smerter|infeksjon)/.test(text);
+}
+
+function urgentNextSteps(redFlagFindings) {
+  const followUpUrgent = state.sheet.followUp.filter((line) => /akutt|innlegg|konfer|rask|legevakt|øyeblikkelig/i.test(line));
+  const steps = [
+    "Vurder ABCDE/vitale parametre og om pasienten er klinisk ustabil.",
+    "Konferer med legevakt/akuttmottak eller relevant spesialist ved vedvarende røde flagg.",
+    "Ikke la pasienten vente på rutinekontroll dersom symptomer eller funn tilsier akutt avklaring."
+  ];
+
+  return [...followUpUrgent, ...steps].slice(0, 5 + Math.min(redFlagFindings.length, 2));
+}
+
+function redFlagRationale(redFlagFindings) {
+  const rationale = redFlagFindings.map(({ entry, answerText }) => `${entry.label}: ${answerText}`);
+  return rationale.length ? rationale : state.sheet.redFlags;
+}
+
+function missingInformation(allItems) {
+  return allItems
+    .filter((entry) => {
+      const answer = state.answers[entry.id] || {};
+      return !answer.choice && !answer.text;
+    })
+    .slice(0, 6)
+    .map((entry) => entry.label);
+}
+
+function clarifyingQuestions(uncertainFindings) {
+  const questions = uncertainFindings.map(({ entry }) => `Avklar punktet "${entry.label}" nærmere.`);
+  return questions.length ? questions : [
+    "Avklar debut, forløp og funksjonspåvirkning.",
+    "Avklar målrettet om røde flagg er til stede eller fraværende.",
+    "Fullfør relevante undersøkelser/vitale parametre før endelig triage."
+  ];
+}
+
+function currentStateDocumentation(findings) {
+  const documentedFindings = findings
+    .slice(0, 5)
+    .map(({ entry, answerText }) => `${entry.label}: ${answerText}`);
+  return documentedFindings.length ? documentedFindings : ["Dokumenter aktuelle symptomer, varighet, funksjonsnivå og relevante negative funn."];
+}
+
+function returnPrecautions() {
+  return [
+    "Ta kontakt raskt ved forverring, nye nevrologiske symptomer, synkope, brystsmerter, tungpust, feber/påvirket allmenntilstand eller andre røde flagg.",
+    "Kontakt lege tidligere enn planlagt dersom funksjon faller, smerter øker eller pasienten blir utrygg på utviklingen."
+  ];
+}
+
+function renderTriagePanel(triage) {
+  const sections = [
+    `<strong>${escapeHtml(triage.title)}</strong>`,
+    `<p><strong>Triagebeslutning:</strong> ${escapeHtml(triage.category)}</p>`,
+    `<p>${escapeHtml(triage.summary)}</p>`
+  ];
+
+  if (triage.category === "må håndteres raskt") {
+    sections.push(renderList("Umiddelbare neste steg", triage.immediateNextSteps));
+    sections.push(renderList("Rød-flagg-begrunnelse", triage.redFlagRationale));
+  } else if (triage.category === "kan vente") {
+    sections.push(renderList("Dokumenter nåværende tilstand", triage.documentationAdvice));
+    sections.push(renderList("Returråd", triage.returnPrecautions));
+    sections.push(`<p><strong>Pasientregistrering/dagbok:</strong> ${escapeHtml(triage.diaryAdvice)}</p>`);
+  } else {
+    sections.push(renderList("Mangler å avklare", triage.missingInformation));
+    sections.push(renderList("Oppfølgingsspørsmål", triage.clarifyingQuestions));
+    sections.push(`<p><strong>Midlertidig sikkerhetsnett:</strong> ${escapeHtml(triage.interimSafetyNet)}</p>`);
+  }
+
+  sections.push(`<p><strong>Oppfølgingstidspunkt:</strong> ${escapeHtml(triage.followUpTiming)}</p>`);
+  sections.push(renderList("Røde flagg å kontrollere", state.sheet.redFlags));
+  return sections.join("");
+}
+
+function renderList(title, items) {
+  if (!items || items.length === 0) return "";
+  return `<strong>${escapeHtml(title)}:</strong><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
 function buildReport() {
@@ -509,11 +663,43 @@ ${entries}
 Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
 
+Triagevurdering (haster vs kan vente):
+${triageReportText(state.assessment.triage)}
+
 Plan:
 ${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
 
 Merknad:
 Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+}
+
+function triageReportText(triage) {
+  const lines = [
+    `Beslutning: ${triage.category}.`,
+    `Begrunnelse: ${triage.summary}`
+  ];
+
+  if (triage.category === "må håndteres raskt") {
+    lines.push("Umiddelbare neste steg:");
+    lines.push(...triage.immediateNextSteps.map((step) => `- ${step}`));
+    lines.push("Rød-flagg-begrunnelse:");
+    lines.push(...triage.redFlagRationale.map((line) => `- ${line}`));
+  } else if (triage.category === "kan vente") {
+    lines.push("Dokumenter nåværende tilstand:");
+    lines.push(...triage.documentationAdvice.map((line) => `- ${line}`));
+    lines.push(`Pasientregistrering/dagbok: ${triage.diaryAdvice}`);
+    lines.push("Returråd:");
+    lines.push(...triage.returnPrecautions.map((line) => `- ${line}`));
+  } else {
+    lines.push("Mangler å avklare:");
+    lines.push(...triage.missingInformation.map((line) => `- ${line}`));
+    lines.push("Oppfølgingsspørsmål:");
+    lines.push(...triage.clarifyingQuestions.map((line) => `- ${line}`));
+    lines.push(`Midlertidig sikkerhetsnett: ${triage.interimSafetyNet}`);
+  }
+
+  lines.push(`Oppfølgingstidspunkt: ${triage.followUpTiming}`);
+  return lines.join("\n");
 }
 
 async function copyReport() {
