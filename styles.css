@@ -215,7 +215,7 @@ p {
 .form-grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   margin-bottom: 12px;
 }
 
@@ -227,6 +227,60 @@ label {
   gap: 6px;
 }
 
+.episode-field {
+  border: 0;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.episode-field legend {
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+  padding: 0;
+}
+
+.segmented-control {
+  background: #f0f4f6;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 3px;
+}
+
+.segmented-control label {
+  color: var(--ink);
+  cursor: pointer;
+  display: block;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.segmented-control span {
+  align-items: center;
+  border-radius: 4px;
+  display: flex;
+  justify-content: center;
+  min-height: 38px;
+  padding: 6px 8px;
+  text-align: center;
+}
+
+.segmented-control input:checked + span {
+  background: var(--primary);
+  color: #fff;
+}
+
+.segmented-control input:focus-visible + span {
+  box-shadow: var(--focus-ring);
+}
+
 input,
 select,
 textarea {
@@ -236,6 +290,16 @@ textarea {
   min-width: 0;
   padding: 11px 12px;
   width: 100%;
+}
+
+.segmented-control input {
+  clip: rect(0 0 0 0);
+  height: 1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
 }
 
 textarea {
@@ -398,6 +462,42 @@ textarea {
   gap: 12px;
 }
 
+.triage-intro {
+  background: var(--primary-soft);
+  border: 1px solid var(--primary-soft-strong);
+  border-radius: 8px;
+  display: grid;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 14px;
+}
+
+.triage-intro span {
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.triage-intro strong {
+  font-size: 1.02rem;
+}
+
+.sheet-section h3 {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  margin: 0;
+}
+
+.sheet-section h3 span {
+  background: #edf3f1;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 3px 8px;
+}
+
 .sheet-section + .sheet-section {
   margin-top: 18px;
 }
@@ -406,6 +506,16 @@ textarea {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 14px;
+}
+
+.item-card.must-ask,
+.item-card.must-do {
+  border-left: 4px solid var(--primary);
+}
+
+.item-card.optional {
+  background: #fbfcfc;
+  border-style: dashed;
 }
 
 .item-title {

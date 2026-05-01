@@ -65,6 +65,13 @@ function validateInput(input) {
     error.publicMessage = "Input is too long";
     throw error;
   }
+
+  if (input.firstEpisode && !["first", "recurring"].includes(input.firstEpisode)) {
+    const error = new Error("Invalid firstEpisode");
+    error.statusCode = 400;
+    error.publicMessage = "Invalid firstEpisode";
+    throw error;
+  }
 }
 
 function validateReviewInput(input) {
@@ -173,7 +180,9 @@ async function generateSheet(input) {
         "Svar kun med JSON som matcher skjemaet.",
         "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
         "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
-        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging.",
+        "For første episode skal arket være en minimumsliste for 15 minutters triage, ikke en bred uttømmende utredning.",
+        "Skill tydelig mellom må-spørres, må-undersøkes og valgfritt/kontekstavhengig."
       ].join(" "),
       input: [
         {
@@ -185,6 +194,7 @@ async function generateSheet(input) {
                 age: input.age,
                 sex: input.sex,
                 sheetType: input.sheetType,
+                firstEpisode: input.firstEpisode || "first",
                 careSetting: "fastlegekontor i Norge",
                 language: "nb-NO",
                 presentation: input.presentation,
@@ -216,7 +226,7 @@ async function generateSheet(input) {
 
   const data = await response.json();
   const parsed = parseResponseJson(data);
-  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis);
+  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis, input.firstEpisode || "first");
 }
 
 function parseResponseJson(data) {
@@ -234,13 +244,16 @@ function parseResponseJson(data) {
   return JSON.parse(text);
 }
 
-function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
+function normalizeAiSheet(sheet, cacheKey, sourceBasis, firstEpisodeMode) {
   return {
     title: sheet.title,
     goal: sheet.goal,
+    firstEpisode: firstEpisodeMode === "first",
+    firstEpisodeFocus: sheet.firstEpisodeFocus,
     redFlags: sheet.redFlags,
     questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
     examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    optionalItems: sheet.optionalItems.map((entry, index) => item(entry.id || `o${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
@@ -257,6 +270,7 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
 function normalizeCachedSheet(sheet, cacheKey) {
   return {
     ...sheet,
+    optionalItems: Array.isArray(sheet.optionalItems) ? sheet.optionalItems : [],
     cacheKey: sheet.cacheKey || cacheKey,
     review: createReviewMetadata({
       status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
@@ -273,9 +287,12 @@ function markSheetReviewed(sheet, input) {
   return {
     title: sheet.title,
     goal: sheet.goal,
+    firstEpisode: Boolean(sheet.firstEpisode),
+    firstEpisodeFocus: sheet.firstEpisodeFocus || "",
     redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
     questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
     examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    optionalItems: Array.isArray(sheet.optionalItems) ? sheet.optionalItems.map((entry, index) => item(entry.id || `o${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
     followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
@@ -304,7 +321,7 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
   if (!requestedBasis) return true;
   if (!sheetBasis) return false;
 
-  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
+  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion", "firstEpisode"]
     .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
@@ -334,10 +351,12 @@ function sheetJsonSchema() {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "goal", "redFlags", "questions", "examinations", "followUp"],
+    required: ["title", "goal", "firstEpisode", "firstEpisodeFocus", "redFlags", "questions", "examinations", "optionalItems", "followUp"],
     properties: {
       title: { type: "string" },
       goal: { type: "string" },
+      firstEpisode: { type: "boolean" },
+      firstEpisodeFocus: { type: "string" },
       redFlags: {
         type: "array",
         minItems: 3,
@@ -354,6 +373,12 @@ function sheetJsonSchema() {
         type: "array",
         minItems: 3,
         maxItems: 10,
+        items: option
+      },
+      optionalItems: {
+        type: "array",
+        minItems: 2,
+        maxItems: 8,
         items: option
       },
       followUp: {
