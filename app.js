@@ -471,32 +471,110 @@ function updateCompletion() {
 
 function assess() {
   if (!state.sheet || els.assess.disabled) return;
-  const values = Object.values(state.answers).map((answer) => `${answer.choice || ""} ${answer.text || ""}`.toLowerCase());
-  const redFlagHits = values.filter((value) => /ja|avvik|synkope|bryst|pares|dobbeltsyn|tale|hodepine|hørselstap|patologisk/.test(value));
-  const risk = redFlagHits.length >= 2 ? "high" : redFlagHits.length === 1 ? "medium" : "low";
-  const title = risk === "high" ? "Høyere risiko / vurder akutt tiltak" : risk === "medium" ? "Moderat risiko / målrettet oppfølging" : "Lavere risiko ut fra utfylte svar";
+  state.assessment = window.generateConsultAssistAssessment({
+    sheet: state.sheet,
+    answers: state.answers
+  });
 
-  state.assessment = { risk, title };
-  els.risk.className = `risk-panel ${risk}`;
-  els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
-  els.report.value = buildReport();
-  els.copy.disabled = false;
-  els.pdf.disabled = false;
+  els.risk.className = `risk-panel ${riskClassForUrgency(state.assessment.urgency.id)}`;
+  els.risk.innerHTML = renderAssessmentPanel(state.assessment);
+
+  if (state.assessment.canGenerateFinalReport) {
+    els.report.value = buildReport();
+    els.copy.disabled = false;
+    els.pdf.disabled = false;
+  } else {
+    els.report.value = pendingReportText(state.assessment);
+    els.copy.disabled = true;
+    els.pdf.disabled = true;
+  }
+
   updateStickyActionBar();
   scrollToAssessment();
 }
 
-function riskText(risk) {
-  if (risk === "high") return "Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
-  if (risk === "medium") return "Noen usikre eller avvikende svar foreligger. Vurder målrettet undersøkelse, supplerende tester og tydelig sikkerhetsnett.";
-  return "Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+function riskClassForUrgency(urgencyId) {
+  if (urgencyId === "same_day") return "high";
+  if (urgencyId === "unclear") return "medium";
+  return "low";
+}
+
+function renderAssessmentPanel(assessment) {
+  return `<strong>${escapeHtml(assessment.urgency.label)}</strong>
+    <p>${escapeHtml(assessment.disclaimer)}</p>
+    <div class="triage-categories">
+      ${assessment.categories.map(renderTriageCategory).join("")}
+    </div>
+    ${renderRedFlagSection(assessment)}
+    ${renderMissingCriticalSection(assessment)}
+    <strong>Foreslått plan:</strong>
+    <ul>${assessment.followUpPlan.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`;
+}
+
+function renderTriageCategory(category) {
+  const evidence = category.evidence.length
+    ? `<ul>${category.evidence.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>`
+    : "<p>Ingen punkter plassert her ut fra utfylte svar.</p>";
+
+  return `<section class="triage-category ${category.active ? "active" : ""}">
+    <strong>${escapeHtml(category.label)}</strong>
+    ${evidence}
+  </section>`;
+}
+
+function renderRedFlagSection(assessment) {
+  const configured = assessment.redFlags.configured.length
+    ? assessment.redFlags.configured.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")
+    : "<li>Ingen røde flagg er definert i arket.</li>";
+  const hits = assessment.redFlags.hits.length
+    ? assessment.redFlags.hits.map((hit) => `<li><strong>${escapeHtml(hit.label)}:</strong> ${escapeHtml(hit.answer)}</li>`).join("")
+    : "<li>Ingen røde flagg er registrert i utfylte svar.</li>";
+
+  return `<strong>Røde flagg - funn før rapport:</strong>
+    <ul>${hits}</ul>
+    <strong>Røde flagg å kontrollere:</strong>
+    <ul>${configured}</ul>`;
+}
+
+function renderMissingCriticalSection(assessment) {
+  if (assessment.missingCriticalAnswers.length === 0) {
+    return "<strong>Manglende kritiske svar:</strong><p>Ingen manglende kritiske svar registrert.</p>";
+  }
+
+  return `<strong>Manglende kritiske svar før rapport:</strong>
+    <ul>${assessment.missingCriticalAnswers.map((entry) => `<li>${escapeHtml(entry.label)}</li>`).join("")}</ul>`;
+}
+
+function pendingReportText(assessment) {
+  const missingCritical = assessment.missingCriticalAnswers.map((entry) => `- ${entry.label}`).join("\n");
+  const missingAll = assessment.missingAnswers.map((entry) => `- ${entry.label}`).join("\n");
+  const nextStep = assessment.missingCriticalAnswers.length > 0
+    ? "Fullfør manglende kritiske svar før endelig journalnotat genereres."
+    : "Fullfør resterende svar før endelig journalnotat genereres.";
+
+  return `Foreløpig triagevurdering - ${assessment.urgency.label}
+
+${assessment.disclaimer}
+
+${nextStep}
+
+Manglende kritiske svar:
+${missingCritical || "- Ingen kritiske svar mangler."}
+
+Øvrige manglende svar:
+${missingAll || "- Ingen øvrige svar mangler."}`;
 }
 
 function buildReport() {
-  const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
-    const answer = state.answers[entry.id] || {};
-    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
-  }).join("\n");
+  const entries = state.assessment.summaryEntries
+    .map((entry) => `- ${entry.label}: ${entry.answerText || "ikke utfylt"}`)
+    .join("\n");
+  const categorySummary = state.assessment.categories
+    .map((category) => `- ${category.label}: ${category.active ? "AKTUELL" : "ikke aktuell"}${category.evidence.length ? ` (${category.evidence.join("; ")})` : ""}`)
+    .join("\n");
+  const redFlagSummary = state.assessment.redFlags.hits.length
+    ? state.assessment.redFlags.hits.map((hit) => `- ${hit.label}: ${hit.answer}`).join("\n")
+    : "- Ingen registrerte røde flagg i utfylte svar.";
 
   return `Journalnotat - ${state.sheet.title}
 
@@ -506,14 +584,20 @@ ${els.caseInput.value.trim()}
 Opplysninger og funn:
 ${entries}
 
+Triagekategorier:
+${categorySummary}
+
+Røde flagg:
+${redFlagSummary}
+
 Vurdering:
-${state.assessment.title}. ${riskText(state.assessment.risk)}
+${state.assessment.urgency.label}. ${state.assessment.disclaimer}
 
 Plan:
-${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
+${state.assessment.followUpPlan.map((line) => `- ${line}`).join("\n")}
 
 Merknad:
-Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+${state.assessment.disclaimer}`;
 }
 
 async function copyReport() {
