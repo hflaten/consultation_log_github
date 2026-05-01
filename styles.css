@@ -5,11 +5,12 @@
   --line: #d8e1e6;
   --panel: #ffffff;
   --page: #f4f7f6;
-  --teal: #0f766e;
-  --teal-strong: #115e59;
+  --primary: #0f766e;
+  --primary-strong: #115e59;
+  --primary-soft: #e6f3f1;
+  --primary-soft-strong: #cfe8e4;
   --amber: #b7791f;
   --red: #b42318;
-  --blue: #2563eb;
   --green-soft: #e8f5f1;
   --amber-soft: #fff3d6;
   --red-soft: #ffe8e5;
@@ -39,9 +40,9 @@ textarea {
 }
 
 button {
-  border: 0;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: var(--teal);
+  background: var(--primary);
   color: #fff;
   cursor: pointer;
   font-weight: 700;
@@ -50,7 +51,7 @@ button {
 }
 
 button:hover {
-  background: var(--teal-strong);
+  background: var(--primary-strong);
 }
 
 button:disabled {
@@ -60,13 +61,15 @@ button:disabled {
 
 .secondary-button,
 .ghost-button {
-  background: #edf3f1;
-  color: var(--teal-strong);
+  background: transparent;
+  border-color: var(--primary-soft-strong);
+  color: var(--primary-strong);
+  font-weight: 700;
 }
 
 .secondary-button:hover,
 .ghost-button:hover {
-  background: #dce9e5;
+  background: var(--primary-soft);
 }
 
 .app-shell {
@@ -100,7 +103,7 @@ button:disabled {
 }
 
 .eyebrow {
-  color: var(--teal);
+  color: var(--primary);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -139,9 +142,9 @@ p {
 }
 
 .status-strip span {
-  background: #edf3f1;
+  background: var(--primary-soft);
   border-radius: 999px;
-  color: var(--teal-strong);
+  color: var(--primary-strong);
   font-size: 0.9rem;
   font-weight: 700;
   padding: 8px 12px;
@@ -205,7 +208,7 @@ textarea {
 }
 
 .prompt-box summary {
-  color: var(--teal-strong);
+  color: var(--primary-strong);
   cursor: pointer;
   font-weight: 800;
 }
@@ -310,15 +313,27 @@ textarea {
 
 .answer-button {
   background: #f0f4f6;
+  border-color: #dce6ea;
   color: var(--ink);
   min-height: 36px;
   padding: 0 12px;
 }
 
-.answer-button:hover,
+.answer-button:hover {
+  background: var(--primary-soft);
+  border-color: var(--primary-soft-strong);
+  color: var(--primary-strong);
+}
+
 .answer-button.active {
-  background: var(--blue);
+  background: var(--primary);
+  border-color: var(--primary);
   color: #fff;
+}
+
+.answer-button.active:hover {
+  background: var(--primary-strong);
+  border-color: var(--primary-strong);
 }
 
 .report-panel textarea {
