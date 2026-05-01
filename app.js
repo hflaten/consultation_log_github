@@ -8,26 +8,31 @@ const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
 const defaultPrompt = `Du er en klinisk assistent for en fastlege i Norge. Lag en minimumsliste for en konsultasjon basert på pasientpresentasjon og klinisk mål. Listen skal hjelpe legen med å avklare alvorlighetsgrad, røde flagg, differensialdiagnoser og plan for videre utredning/oppfølging.
 
 Input:
-- Pasient: alder, kjønn, relevant kontekst
+- Pasient: alder, kjønn, første episode/kjent problem, tidsramme og relevant kontekst
 - Presenterende problemstilling: fri tekst
 - Ønsket arktype: minimumsliste for konsultasjon
 - Språk: norsk bokmål
 - Klinisk ramme: fastlegekontor i Norge
+- Kildehierarki: bruk først norske nasjonale faglige retningslinjer, veiledere og faglige råd fra Helsedirektoratet når relevant; bruk Helsebiblioteket som inngang til offentlige fagressurser; bruk NEL-lignende allmennlegeflyt kun som arbeidsmønster, ikke som sitert eller kopiert proprietært innhold.
+- Klinisk metode: strukturer spørsmål etter hovedproblem, sykehistorie, tidligere sykdommer, legemidler/allergier, sosial/familie-kontekst, ICE (pasientens tanker, bekymringer og forventninger), røde flagg, målrettet undersøkelse og plan.
 
 Output som JSON:
 - sheet_title
 - clinical_goal
 - red_flags: korte punkter
-- questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder }
-- examinations: liste med { id, label, answer_buttons, free_text_placeholder }
+- questions: liste med { id, section, label, why_it_matters, answer_buttons, free_text_placeholder }
+- examinations: liste med { id, section, label, answer_buttons, free_text_placeholder }
 - initial_assessment_rules: kort veiledning for alvorlighetsgrad
 - follow_up_options: anbefalte neste steg
 - journal_note_template: struktur for ferdig journalnotat
 
 Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
+- Ved første episode og 15 minutters konsultasjon: prioriter minimumsliste over det som må avklares nå, ikke bred utredning.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
+- Hvert spørsmål og hver undersøkelse skal ha en section som kan brukes visuelt, f.eks. "Anamnese", "Røde flagg", "ICE", "Undersøkelser" eller "Plan".
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
+- Assessment skal eksplisitt kunne støtte kategoriene "må håndteres raskt", "kan vente med sikkerhetsnett" og "uklart / trenger mer informasjon".
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
 
 const dizzinessTemplate = {
@@ -40,21 +45,22 @@ const dizzinessTemplate = {
     "Ny hørselstap, alvorlig infeksjonstegn eller nakkestivhet"
   ],
   questions: [
-    item("q1", "Debut og forløp", "Skiller akutt alvorlig sykdom fra benign episodisk svimmelhet.", ["Akutt", "Gradvis", "Anfallsvis", "Konstant"], "Når startet det, og hvordan har det utviklet seg?"),
-    item("q2", "Karakter", "Vertigo, presynkope og ustøhet peker mot ulike videre spor.", ["Rotatorisk", "Nær besvimelse", "Ustøhet", "Uklart"], "Pasientens egne ord."),
-    item("q3", "Utløsende faktorer", "Stillingsutløst svimmelhet kan passe med BPPV.", ["Hodebevegelse", "Reise seg", "Anstrengelse", "Ingen tydelig"], "Hva utløser eller lindrer plagene?"),
-    item("q4", "Nevrologiske symptomer", "Røde flagg for sentral årsak må avklares tidlig.", ["Nei", "Ja", "Usikkert"], "Dobbeltsyn, talevansker, nummenhet, pareser, ataksi."),
-    item("q5", "Kardiopulmonale symptomer", "Kan peke mot arytmi, iskemi eller annen akutt somatikk.", ["Nei", "Ja", "Usikkert"], "Brystsmerter, palpitasjoner, tungpust, synkope."),
-    item("q6", "Øre-/infeksjonssymptomer", "Hørselstap, tinnitus og infeksjon påvirker vurdering og tiltak.", ["Ingen", "Tinnitus", "Hørselstap", "Infeksjon"], "Øresmerter, feber, nylig luftveisinfeksjon."),
-    item("q7", "Legemidler og rusmidler", "Bivirkninger og blodtrykksfall er vanlige reversible årsaker.", ["Ingen relevante", "Mulig relevant", "Usikkert"], "Nye medisiner, antihypertensiva, alkohol, andre rusmidler.")
+    item("q1", "Debut og forløp", "Skiller akutt alvorlig sykdom fra benign episodisk svimmelhet.", ["Akutt", "Gradvis", "Anfallsvis", "Konstant"], "Når startet det, og hvordan har det utviklet seg?", "Anamnese"),
+    item("q2", "Karakter", "Vertigo, presynkope og ustøhet peker mot ulike videre spor.", ["Rotatorisk", "Nær besvimelse", "Ustøhet", "Uklart"], "Pasientens egne ord.", "Anamnese"),
+    item("q3", "Utløsende faktorer", "Stillingsutløst svimmelhet kan passe med BPPV.", ["Hodebevegelse", "Reise seg", "Anstrengelse", "Ingen tydelig"], "Hva utløser eller lindrer plagene?", "Anamnese"),
+    item("q4", "Nevrologiske symptomer", "Røde flagg for sentral årsak må avklares tidlig.", ["Nei", "Ja", "Usikkert"], "Dobbeltsyn, talevansker, nummenhet, pareser, ataksi.", "Røde flagg"),
+    item("q5", "Kardiopulmonale symptomer", "Kan peke mot arytmi, iskemi eller annen akutt somatikk.", ["Nei", "Ja", "Usikkert"], "Brystsmerter, palpitasjoner, tungpust, synkope.", "Røde flagg"),
+    item("q6", "Øre-/infeksjonssymptomer", "Hørselstap, tinnitus og infeksjon påvirker vurdering og tiltak.", ["Ingen", "Tinnitus", "Hørselstap", "Infeksjon"], "Øresmerter, feber, nylig luftveisinfeksjon.", "Anamnese"),
+    item("q7", "Legemidler og rusmidler", "Bivirkninger og blodtrykksfall er vanlige reversible årsaker.", ["Ingen relevante", "Mulig relevant", "Usikkert"], "Nye medisiner, antihypertensiva, alkohol, andre rusmidler.", "Legemidler og risiko"),
+    item("q8", "Pasientens bekymring og forventning", "ICE avklarer hva pasienten trenger svar på i konsultasjonen.", ["Avklart", "Ikke avklart", "Usikkert"], "Tanker, bekymringer og forventninger.", "ICE")
   ],
   examinations: [
-    item("e1", "Allmenntilstand og vitale parametre", "Fanger akutt sykdom og sirkulatorisk påvirkning.", ["Upåfallende", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2, respirasjon."),
-    item("e2", "Ortostatisk blodtrykk", "Vurderer ortostatisk hypotensjon.", ["Normal", "Patologisk", "Ikke utført"], "Liggende/stående BT og puls."),
-    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange."),
-    item("e4", "Ørestatus og nystagmus", "Støtter perifer vestibulær vurdering.", ["Normal", "Avvik", "Ikke utført"], "Otoskopi, spontan-/blikkretningsnystagmus."),
-    item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon."),
-    item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.")
+    item("e1", "Allmenntilstand og vitale parametre", "Fanger akutt sykdom og sirkulatorisk påvirkning.", ["Upåfallende", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2, respirasjon.", "Undersøkelser"),
+    item("e2", "Ortostatisk blodtrykk", "Vurderer ortostatisk hypotensjon.", ["Normal", "Patologisk", "Ikke utført"], "Liggende/stående BT og puls.", "Undersøkelser"),
+    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange.", "Undersøkelser"),
+    item("e4", "Ørestatus og nystagmus", "Støtter perifer vestibulær vurdering.", ["Normal", "Avvik", "Ikke utført"], "Otoskopi, spontan-/blikkretningsnystagmus.", "Undersøkelser"),
+    item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon.", "Undersøkelser"),
+    item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.", "Undersøkelser")
   ],
   followUp: [
     "Akutt innleggelse/konferering ved nevrologiske utfall, synkope med alarmsymptomer eller ustabil pasient.",
@@ -73,16 +79,17 @@ const genericTemplate = {
     "Symptomer som ikke passer med benign forklaring"
   ],
   questions: [
-    item("q1", "Debut og varighet", "Tidsforløpet styrer hastegrad og differensialdiagnoser.", ["Akutt", "Subakutt", "Langvarig", "Tilbakevendende"], "Når startet plagene?"),
-    item("q2", "Alvorlighetsgrad og funksjon", "Avklarer hvor mye plagene påvirker pasienten.", ["Lett", "Moderat", "Alvorlig", "Varierende"], "Arbeid, søvn, aktivitet, egenomsorg."),
-    item("q3", "Ledsagende symptomer", "Finner mønstre og røde flagg.", ["Ingen", "Noen", "Flere", "Usikkert"], "Feber, smerter, vekttap, nevrologi, annet."),
-    item("q4", "Tidligere sykdom og risiko", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Relevant", "Usikkert"], "Komorbiditet, familiehistorie, graviditet, immunsuppresjon."),
-    item("q5", "Legemidler og tiltak forsøkt", "Avklarer bivirkninger og effekt av egenbehandling.", ["Ingen", "Noe effekt", "Ingen effekt", "Bivirkning"], "Medikamenter, naturmidler, egenbehandling.")
+    item("q1", "Debut og varighet", "Tidsforløpet styrer hastegrad og differensialdiagnoser.", ["Akutt", "Subakutt", "Langvarig", "Tilbakevendende"], "Når startet plagene?", "Anamnese"),
+    item("q2", "Alvorlighetsgrad og funksjon", "Avklarer hvor mye plagene påvirker pasienten.", ["Lett", "Moderat", "Alvorlig", "Varierende"], "Arbeid, søvn, aktivitet, egenomsorg.", "Anamnese"),
+    item("q3", "Ledsagende symptomer", "Finner mønstre og røde flagg.", ["Ingen", "Noen", "Flere", "Usikkert"], "Feber, smerter, vekttap, nevrologi, annet.", "Røde flagg"),
+    item("q4", "Tidligere sykdom og risiko", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Relevant", "Usikkert"], "Komorbiditet, familiehistorie, graviditet, immunsuppresjon.", "Tidligere sykdom og risiko"),
+    item("q5", "Legemidler og tiltak forsøkt", "Avklarer bivirkninger og effekt av egenbehandling.", ["Ingen", "Noe effekt", "Ingen effekt", "Bivirkning"], "Medikamenter, naturmidler, egenbehandling.", "Legemidler og risiko"),
+    item("q6", "Pasientens tanker og bekymringer", "ICE hjelper legen å målrette råd og sikkerhetsnett.", ["Avklart", "Ikke avklart", "Usikkert"], "Hva tror pasienten selv, hva bekymrer, hva forventes?", "ICE")
   ],
   examinations: [
-    item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov."),
-    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn."),
-    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.")
+    item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov.", "Undersøkelser"),
+    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn.", "Undersøkelser"),
+    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.", "Undersøkelser")
   ],
   followUp: [
     "Akutt tiltak ved røde flagg eller påvirket pasient.",
@@ -96,7 +103,8 @@ const state = {
   answers: {},
   assessment: null,
   stickyDismissed: false,
-  nearTop: true
+  nearTop: true,
+  setupCollapsed: false
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
@@ -105,7 +113,14 @@ const els = {
   age: document.querySelector("#ageInput"),
   sex: document.querySelector("#sexInput"),
   sheetType: document.querySelector("#sheetType"),
+  firstEpisode: document.querySelector("#firstEpisodeInput"),
+  timeBudget: document.querySelector("#timeBudgetInput"),
+  patientId: document.querySelector("#patientIdInput"),
   caseInput: document.querySelector("#caseInput"),
+  setupPanel: document.querySelector("#setupPanel"),
+  setupSummary: document.querySelector("#setupSummary"),
+  setupSummaryText: document.querySelector("#setupSummaryText"),
+  editSetup: document.querySelector("#editSetup"),
   generate: document.querySelector("#generateSheet"),
   example: document.querySelector("#loadExample"),
   clear: document.querySelector("#clearSession"),
@@ -115,6 +130,9 @@ const els = {
   completionStatus: document.querySelector("#completionStatus"),
   reviewStatus: document.querySelector("#reviewStatus"),
   sheetSubtitle: document.querySelector("#sheetSubtitle"),
+  patientContextBar: document.querySelector("#patientContextBar"),
+  patientContextText: document.querySelector("#patientContextText"),
+  generatedAtText: document.querySelector("#generatedAtText"),
   reviewBanner: document.querySelector("#reviewBanner"),
   reviewLabel: document.querySelector("#reviewLabel"),
   reviewMeta: document.querySelector("#reviewMeta"),
@@ -139,10 +157,14 @@ els.example.addEventListener("click", () => {
   els.age.value = "44";
   els.sex.value = "mann";
   els.sheetType.value = "minimumsliste";
+  els.firstEpisode.value = "ja";
+  els.timeBudget.value = "15";
+  els.patientId.value = "";
   els.caseInput.value = "Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.";
   updateFlowHint();
 });
 els.clear.addEventListener("click", clearAnswers);
+els.editSetup.addEventListener("click", () => setSetupCollapsed(false));
 els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
@@ -157,7 +179,7 @@ els.stickyDismiss.addEventListener("click", () => {
 });
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
-[els.age, els.sex, els.sheetType, els.caseInput].forEach((input) => {
+[els.age, els.sex, els.sheetType, els.firstEpisode, els.timeBudget, els.patientId, els.caseInput].forEach((input) => {
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
 });
@@ -166,8 +188,8 @@ window.addEventListener("resize", updateStickyPosition);
 updateFlowHint();
 updateStickyPosition();
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function item(id, label, why, buttons, placeholder, section = "Anamnese") {
+  return { id, label, why, buttons, placeholder, section };
 }
 
 function normalizeTopic(text) {
@@ -186,6 +208,8 @@ function cacheKey() {
     ageBand,
     els.sex.value,
     els.sheetType.value,
+    els.firstEpisode.value,
+    `${els.timeBudget.value}-min`,
     "nb-no",
     "fastlege"
   ].join(":");
@@ -240,6 +264,8 @@ async function generateAiSheet(key) {
       age: els.age.value,
       sex: els.sex.value,
       sheetType: els.sheetType.value,
+      firstEpisode: els.firstEpisode.value,
+      timeBudgetMinutes: els.timeBudget.value,
       presentation: els.caseInput.value,
       prompt: defaultPrompt,
       cacheKey: key,
@@ -260,27 +286,51 @@ async function generateAiSheet(key) {
 
 function renderSheet() {
   const sheet = state.sheet;
-  els.sheetSubtitle.textContent = `${sheet.title} · ${sheet.goal}`;
+  els.sheetSubtitle.textContent = sheet.goal;
+  els.patientContextBar.hidden = false;
+  els.patientContextText.textContent = patientContextText();
+  els.generatedAtText.textContent = `Generert ${formatDateTime(sheet.createdAt || new Date().toISOString())}`;
   updateReviewUi();
   els.sheetContainer.className = "";
   els.sheetContainer.innerHTML = [
-    renderSection("Spørsmål", sheet.questions),
-    renderSection("Undersøkelser", sheet.examinations)
+    `<h3 class="sheet-title">${escapeHtml(sheet.title)}</h3>`,
+    renderGroupedSections("Spørsmål", sheet.questions),
+    renderGroupedSections("Undersøkelser", sheet.examinations)
   ].join("");
 
   document.querySelectorAll(".answer-button").forEach((button) => {
     button.addEventListener("click", () => {
-      const id = button.dataset.id;
-      state.answers[id] = state.answers[id] || {};
-      state.answers[id].choice = button.dataset.value;
-      document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
-        candidate.classList.toggle("active", candidate === button);
-      });
-      updateCompletion();
+      selectAnswer(button);
+    });
+    button.addEventListener("keydown", handleAnswerKeydown);
+    button.setAttribute("aria-checked", "false");
+    button.setAttribute("role", "radio");
+    button.tabIndex = 0;
+  });
+
+  document.querySelectorAll(".button-row").forEach((row) => {
+    row.setAttribute("role", "radiogroup");
+    row.setAttribute("aria-label", row.dataset.label || "Svarvalg");
+  });
+
+  document.querySelectorAll(".item-card").forEach((card) => {
+    const id = card.dataset.id;
+    card.classList.toggle("answered", Boolean(hasAnswer(id)));
+    card.classList.toggle("unanswered", !hasAnswer(id));
+  });
+
+  Object.entries(state.answers).forEach(([id, answer]) => {
+    if (!answer.choice) return;
+    document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((button) => {
+      const isActive = button.dataset.value === answer.choice;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-checked", isActive ? "true" : "false");
     });
   });
 
   document.querySelectorAll(".free-text").forEach((input) => {
+    const existing = state.answers[input.dataset.id]?.text;
+    if (existing) input.value = existing;
     input.addEventListener("input", () => {
       const id = input.dataset.id;
       state.answers[id] = state.answers[id] || {};
@@ -288,6 +338,9 @@ function renderSheet() {
       updateCompletion();
     });
   });
+
+  setSetupCollapsed(true);
+  setTimeout(() => els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
 }
 
 async function approveTemplate() {
@@ -420,21 +473,73 @@ function stableHash(text) {
   return Math.abs(hash).toString(36);
 }
 
-function renderSection(title, items) {
-  return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
+function renderGroupedSections(title, items) {
+  const groups = groupBySection(items);
+  return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${Object.entries(groups).map(([section, entries]) => `
+    <section class="sheet-subsection" aria-label="${escapeHtml(section)}">
+      <div class="subsection-heading">
+        <span>${escapeHtml(section)}</span>
+        <small>${entries.length} punkt</small>
+      </div>
+      ${entries.map(renderItem).join("")}
+    </section>
+  `).join("")}</div>`;
+}
+
+function groupBySection(items) {
+  return items.reduce((groups, entry) => {
+    const section = entry.section || "Anamnese";
+    groups[section] = groups[section] || [];
+    groups[section].push(entry);
+    return groups;
+  }, {});
 }
 
 function renderItem(entry) {
-  return `<article class="item-card">
+  const answered = hasAnswer(entry.id);
+  return `<article class="item-card ${answered ? "answered" : "unanswered"}" data-id="${escapeHtml(entry.id)}">
     <div class="item-title">
       <strong>${escapeHtml(entry.label)}</strong>
       <span>${escapeHtml(entry.why)}</span>
     </div>
-    <div class="button-row">
-      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
+    <div class="button-row" data-label="${escapeHtml(entry.label)}">
+      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${escapeHtml(entry.id)}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
     </div>
-    <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
+    <input class="free-text" data-id="${escapeHtml(entry.id)}" placeholder="${escapeHtml(entry.placeholder)}">
   </article>`;
+}
+
+function selectAnswer(button) {
+  const id = button.dataset.id;
+  state.answers[id] = state.answers[id] || {};
+  state.answers[id].choice = button.dataset.value;
+  document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
+    const isActive = candidate === button;
+    candidate.classList.toggle("active", isActive);
+    candidate.setAttribute("aria-checked", isActive ? "true" : "false");
+  });
+  updateCompletion();
+}
+
+function handleAnswerKeydown(event) {
+  const key = event.key;
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(key)) return;
+  const buttons = [...event.currentTarget.closest(".button-row").querySelectorAll(".answer-button")];
+  const index = buttons.indexOf(event.currentTarget);
+
+  if (key === "Enter" || key === " ") {
+    event.preventDefault();
+    selectAnswer(event.currentTarget);
+    return;
+  }
+
+  event.preventDefault();
+  const nextIndex = key === "Home"
+    ? 0
+    : key === "End"
+      ? buttons.length - 1
+      : (index + (key === "ArrowLeft" || key === "ArrowUp" ? -1 : 1) + buttons.length) % buttons.length;
+  buttons[nextIndex].focus();
 }
 
 function updateCompletion() {
@@ -458,6 +563,11 @@ function updateCompletion() {
   els.stickyPercent.textContent = `${percent}%`;
   els.stickyAssess.hidden = !hasStartedAnswers;
   els.stickyAssess.disabled = els.assess.disabled;
+  document.querySelectorAll(".item-card").forEach((card) => {
+    const answered = Boolean(hasAnswer(card.dataset.id));
+    card.classList.toggle("answered", answered);
+    card.classList.toggle("unanswered", !answered);
+  });
   updateStickyActionBar();
 }
 
@@ -465,12 +575,14 @@ function assess() {
   if (!state.sheet || els.assess.disabled) return;
   const values = Object.values(state.answers).map((answer) => `${answer.choice || ""} ${answer.text || ""}`.toLowerCase());
   const redFlagHits = values.filter((value) => /ja|avvik|synkope|bryst|pares|dobbeltsyn|tale|hodepine|hørselstap|patologisk/.test(value));
-  const risk = redFlagHits.length >= 2 ? "high" : redFlagHits.length === 1 ? "medium" : "low";
-  const title = risk === "high" ? "Høyere risiko / vurder akutt tiltak" : risk === "medium" ? "Moderat risiko / målrettet oppfølging" : "Lavere risiko ut fra utfylte svar";
+  const missingCritical = missingCriticalAnswers();
+  const risk = redFlagHits.length >= 2 ? "high" : redFlagHits.length === 1 || missingCritical.length > 0 ? "medium" : "low";
+  const urgency = urgencyForRisk(risk, missingCritical);
+  const title = urgency.title;
 
-  state.assessment = { risk, title };
+  state.assessment = { risk, title, urgency: urgency.category, missingCritical };
   els.risk.className = `risk-panel ${risk}`;
-  els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
+  els.risk.innerHTML = `<div class="urgency-kicker">${escapeHtml(urgency.category)}</div><strong>${title}</strong><p>${riskText(risk, missingCritical)}</p>${missingCritical.length ? `<p><strong>Mangler før trygg vurdering:</strong> ${missingCritical.map(escapeHtml).join(", ")}</p>` : ""}<strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
@@ -478,10 +590,30 @@ function assess() {
   scrollToAssessment();
 }
 
-function riskText(risk) {
+function urgencyForRisk(risk, missingCritical) {
+  if (risk === "high") {
+    return {
+      category: "Må håndteres raskt",
+      title: "Høyere risiko / vurder tiltak samme dag"
+    };
+  }
+  if (risk === "medium") {
+    return {
+      category: missingCritical.length ? "Uklart / trenger mer informasjon" : "Målrettet oppfølging",
+      title: missingCritical.length ? "Uklart - fyll ut kritiske punkter før endelig plan" : "Moderat risiko / målrettet oppfølging"
+    };
+  }
+  return {
+    category: "Kan vente med sikkerhetsnett",
+    title: "Lavere risiko ut fra utfylte svar"
+  };
+}
+
+function riskText(risk, missingCritical = []) {
   if (risk === "high") return "Funn eller svar kan passe med røde flagg. Legen bør vurdere hastegrad, konferering eller innleggelse ut fra klinisk helhet.";
+  if (risk === "medium" && missingCritical.length) return "Flere sikkerhetskritiske punkter mangler. Avklar disse før pasienten får et vente-/egenregistreringsråd.";
   if (risk === "medium") return "Noen usikre eller avvikende svar foreligger. Vurder målrettet undersøkelse, supplerende tester og tydelig sikkerhetsnett.";
-  return "Ingen tydelige røde flagg er registrert i utfylt ark. Fortsatt klinisk skjønn og sikkerhetsnett anbefales.";
+  return "Ingen tydelige røde flagg er registrert i utfylt ark. Tilstanden kan vanligvis avvente planlagt oppfølging med tydelig sikkerhetsnett og eventuell registrering av videre symptomer.";
 }
 
 function buildReport() {
@@ -499,7 +631,7 @@ Opplysninger og funn:
 ${entries}
 
 Vurdering:
-${state.assessment.title}. ${riskText(state.assessment.risk)}
+${state.assessment.urgency}: ${state.assessment.title}. ${riskText(state.assessment.risk, state.assessment.missingCritical)}
 
 Plan:
 ${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
@@ -545,6 +677,20 @@ function getCompletion() {
   };
 }
 
+function hasAnswer(id) {
+  const answer = state.answers[id];
+  return answer && (answer.choice || answer.text);
+}
+
+function missingCriticalAnswers() {
+  if (!state.sheet) return [];
+  const criticalTerms = /rød|nevrolog|kardio|bryst|synkope|allmenntilstand|vital|undersøkelse|akutt/i;
+  return [...state.sheet.questions, ...state.sheet.examinations]
+    .filter((entry) => criticalTerms.test(`${entry.section || ""} ${entry.label}`) && !hasAnswer(entry.id))
+    .slice(0, 4)
+    .map((entry) => entry.label);
+}
+
 function updateStickyPosition() {
   state.nearTop = window.scrollY < STICKY_TOP_HIDE_OFFSET;
   updateStickyActionBar();
@@ -573,6 +719,32 @@ function updateFlowHint() {
 function scrollToAssessment() {
   els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
   els.assess.focus({ preventScroll: true });
+}
+
+function patientContextText() {
+  const patient = els.patientId.value.trim() ? `${els.patientId.value.trim()} · ` : "";
+  const firstEpisode = els.firstEpisode.value === "ja" ? "første episode" : els.firstEpisode.value === "nei" ? "kjent/tilbakevendende" : "uklart førstegangsforløp";
+  return `${patient}${els.sex.value}, ${els.age.value || "ukjent alder"} år · ${els.sheetType.value} · ${firstEpisode} · ${els.timeBudget.value} min`;
+}
+
+function setupSummaryText() {
+  return `${patientContextText()} · ${normalizeTopic(els.caseInput.value)}`;
+}
+
+function setSetupCollapsed(collapsed) {
+  state.setupCollapsed = collapsed;
+  els.setupPanel.classList.toggle("collapsed", collapsed);
+  els.setupSummary.hidden = !collapsed;
+  els.setupSummaryText.textContent = setupSummaryText();
+}
+
+function formatDateTime(value) {
+  return new Date(value).toLocaleString("nb-NO", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
 
 function escapeHtml(value) {

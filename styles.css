@@ -55,6 +55,14 @@ button:hover {
   background: var(--primary-strong);
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 2px;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -204,6 +212,31 @@ p {
   padding: 18px;
 }
 
+.input-panel.collapsed {
+  display: none;
+}
+
+.setup-summary {
+  align-items: center;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  padding: 12px 14px;
+}
+
+.setup-summary[hidden] {
+  display: none;
+}
+
+.setup-summary strong {
+  color: var(--ink);
+  line-height: 1.35;
+}
+
 .panel-head {
   align-items: start;
   display: flex;
@@ -257,7 +290,7 @@ textarea {
 .sheet-layout {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(260px, 0.34fr) minmax(0, 1fr);
+  grid-template-columns: 1fr;
 }
 
 .wide-button {
@@ -269,6 +302,29 @@ textarea {
   border-radius: 8px;
   line-height: 1.45;
   padding: 14px;
+}
+
+.summary-panel {
+  position: sticky;
+  top: 12px;
+  z-index: 5;
+}
+
+.summary-panel h2 {
+  font-size: 1.2rem;
+}
+
+.urgency-kicker {
+  color: inherit;
+  font-size: 0.78rem;
+  font-weight: 900;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.risk-panel p {
+  color: inherit;
+  margin: 8px 0 10px;
 }
 
 .risk-panel.muted {
@@ -336,6 +392,26 @@ textarea {
   flex: 0 0 auto;
 }
 
+.patient-context-bar {
+  align-items: center;
+  background: #f7faf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 0.92rem;
+  font-weight: 700;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+}
+
+.patient-context-bar[hidden] {
+  display: none;
+}
+
 .empty-state {
   align-items: center;
   border: 1px dashed var(--line);
@@ -378,17 +454,55 @@ textarea {
 
 .sheet-section {
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .sheet-section + .sheet-section {
   margin-top: 18px;
 }
 
+.sheet-title {
+  font-size: 1.28rem;
+  line-height: 1.25;
+  margin: 0 0 14px;
+}
+
+.sheet-subsection {
+  display: grid;
+  gap: 10px;
+}
+
+.subsection-heading {
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  color: var(--primary-strong);
+  display: flex;
+  font-weight: 900;
+  justify-content: space-between;
+  padding-bottom: 6px;
+}
+
+.subsection-heading small {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 .item-card {
   border: 1px solid var(--line);
   border-radius: 8px;
+  border-left: 4px solid transparent;
   padding: 14px;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.item-card.answered {
+  background: #fbfefd;
+  border-left-color: var(--primary);
+}
+
+.item-card.unanswered {
+  border-left-color: #dce6ea;
 }
 
 .item-title {
@@ -430,10 +544,20 @@ textarea {
   color: var(--primary-strong);
 }
 
+.answer-button:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.35);
+  outline-offset: 2px;
+}
+
 .answer-button.active {
   background: var(--primary);
   border-color: var(--primary);
   color: #fff;
+}
+
+.answer-button.active::before {
+  content: "✓ ";
+  font-weight: 900;
 }
 
 .answer-button.active:hover {
@@ -541,6 +665,15 @@ textarea {
   .form-grid,
   .sheet-layout {
     grid-template-columns: 1fr;
+  }
+
+  .setup-summary {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .summary-panel {
+    position: static;
   }
 
   body.has-sticky-action-bar {

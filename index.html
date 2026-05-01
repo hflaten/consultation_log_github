@@ -34,7 +34,7 @@
           <button id="dismissFlowHint" class="ghost-button" type="button">Skjul</button>
         </section>
 
-        <section class="input-panel" aria-labelledby="case-heading">
+        <section id="setupPanel" class="input-panel" aria-labelledby="case-heading">
           <div class="panel-head">
             <div>
               <h2 id="case-heading">Pasient og problemstilling</h2>
@@ -64,6 +64,26 @@
                 <option value="oppfølging">Oppfølging</option>
               </select>
             </label>
+            <label>
+              Første episode
+              <select id="firstEpisodeInput" aria-label="Første episode">
+                <option value="ja">Ja, første gang</option>
+                <option value="nei">Nei, kjent/tilbakevendende</option>
+                <option value="ukjent">Uklart</option>
+              </select>
+            </label>
+            <label>
+              Konsultasjon
+              <select id="timeBudgetInput" aria-label="Konsultasjonslengde">
+                <option value="15">15 min triage</option>
+                <option value="20">20 min</option>
+                <option value="30">30 min</option>
+              </select>
+            </label>
+            <label>
+              Pasient-ID / initialer
+              <input id="patientIdInput" aria-label="Pasient-ID eller initialer" placeholder="Valgfritt">
+            </label>
           </div>
 
           <label class="full-label">
@@ -75,6 +95,11 @@
             <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
             <button id="clearSession" class="secondary-button" type="button">Nullstill svar</button>
           </div>
+        </section>
+
+        <section id="setupSummary" class="setup-summary" aria-label="Valgt pasientkontekst" hidden>
+          <strong id="setupSummaryText">Ingen konsultasjon valgt.</strong>
+          <button id="editSetup" class="secondary-button" type="button">Endre</button>
         </section>
 
         <section class="sheet-layout">
@@ -90,6 +115,10 @@
                 <h2 id="sheet-heading">Konsultasjonsark</h2>
                 <p id="sheetSubtitle">Ingen ark generert ennå.</p>
               </div>
+            </div>
+            <div id="patientContextBar" class="patient-context-bar" hidden>
+              <span id="patientContextText">Ingen pasientkontekst</span>
+              <span id="generatedAtText">Ikke generert</span>
             </div>
             <div id="reviewBanner" class="review-banner draft" hidden>
               <div>

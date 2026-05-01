@@ -68,5 +68,6 @@ Security notes:
 - `index.html`: GP-facing workflow.
 - `styles.css`: responsive interface and print/PDF layout.
 - `app.js`: local sheet generation stub, browser cache, answer capture, severity support summary, copy action, and print-to-PDF export.
+- `SOURCE_POLICY.md`: source hierarchy and licensed-content policy for Norwegian GP content.
 
 The current MVP first checks browser localStorage, then calls the Vercel Function. The function checks Supabase private storage for a reusable sheet template, generates with OpenAI on cache miss, and writes the generated template back to Supabase.

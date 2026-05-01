@@ -185,11 +185,29 @@ async function generateSheet(input) {
                 age: input.age,
                 sex: input.sex,
                 sheetType: input.sheetType,
+                firstEpisode: input.firstEpisode || "ukjent",
+                timeBudgetMinutes: input.timeBudgetMinutes || "15",
                 careSetting: "fastlegekontor i Norge",
                 language: "nb-NO",
                 presentation: input.presentation,
                 prompt: input.prompt,
-                cacheKey: input.cacheKey
+                cacheKey: input.cacheKey,
+                sourceHierarchy: [
+                  "Helsedirektoratet: nasjonale faglige retningslinjer, veiledere, faglige råd, pasientforløp og pakkeforløp når relevant.",
+                  "Helsebiblioteket: offentlig inngang til fagressurser og retningslinjer.",
+                  "NEL-lignende allmennlegeflyt: kun arbeidsmønster for anamnese og undersøkelse, ikke kopiert proprietært innhold."
+                ],
+                clinicalMethod: [
+                  "hovedproblem/presentasjonsklage",
+                  "sykehistorie",
+                  "tidligere sykdommer",
+                  "legemidler og allergier",
+                  "sosial/familie-kontekst",
+                  "ICE",
+                  "røde flagg",
+                  "målrettet undersøkelse",
+                  "plan og sikkerhetsnett"
+                ]
               })
             }
           ]
@@ -239,8 +257,8 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: sheet.redFlags,
-    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
-    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder, entry.section || "Anamnese")),
+    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder, entry.section || "Undersøkelser")),
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
@@ -274,8 +292,8 @@ function markSheetReviewed(sheet, input) {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
-    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
-    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "", entry.section || "Anamnese")) : [],
+    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "", entry.section || "Undersøkelser")) : [],
     followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
@@ -308,17 +326,18 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
     .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function item(id, label, why, buttons, placeholder, section) {
+  return { id, section, label, why, buttons, placeholder };
 }
 
 function sheetJsonSchema() {
   const option = {
     type: "object",
     additionalProperties: false,
-    required: ["id", "label", "why", "buttons", "placeholder"],
+    required: ["id", "section", "label", "why", "buttons", "placeholder"],
     properties: {
       id: { type: "string" },
+      section: { type: "string" },
       label: { type: "string" },
       why: { type: "string" },
       buttons: {
