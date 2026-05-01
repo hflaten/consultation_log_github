@@ -1,8 +1,20 @@
 const OPENAI_MODEL = "gpt-5.2";
 const SHEET_BUCKET = "consultassist-sheet-templates";
 const REVIEW_METADATA_VERSION = "review-v1";
+const SOURCE_POLICY_VERSION = "source-policy-v1";
 const REVIEWED_PREFIX = "reviewed";
 const DRAFT_PREFIX = "drafts";
+const REVIEW_STATUS = {
+  draft: "draft",
+  clinicianReviewed: "clinician_reviewed",
+  approvedForUse: "approved_for_use"
+};
+const SOURCE_CATEGORY = {
+  publicOfficialGuidance: "public_official_guidance",
+  licensedCustomerProvidedContent: "licensed_customer_provided_content",
+  clinicianAuthoredLocalTemplate: "clinician_authored_local_template",
+  aiGeneratedClinicalMethod: "ai_generated_clinical_method"
+};
 
 module.exports = async function handler(req, res) {
   setJsonHeaders(res);
@@ -245,8 +257,14 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
     cacheKey,
     createdAt: new Date().toISOString(),
     source: "openai",
+    sourceMetadata: createSourceMetadata({
+      category: SOURCE_CATEGORY.aiGeneratedClinicalMethod,
+      name: "openai",
+      sourceVersion: `openai:${OPENAI_MODEL}`,
+      templateVersion: sourceBasis?.templateVersion || null
+    }),
     review: createReviewMetadata({
-      status: "unreviewed",
+      status: REVIEW_STATUS.draft,
       reviewer: null,
       reviewedAt: null,
       sourceBasis
@@ -258,11 +276,12 @@ function normalizeCachedSheet(sheet, cacheKey) {
   return {
     ...sheet,
     cacheKey: sheet.cacheKey || cacheKey,
+    sourceMetadata: normalizeSourceMetadata(sheet.sourceMetadata, sheet.source),
     review: createReviewMetadata({
-      status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
+      status: normalizeReviewStatus(sheet.review?.status),
       reviewer: sheet.review?.reviewer || null,
       reviewedAt: sheet.review?.reviewedAt || sheet.review?.date || null,
-      sourceBasis: sheet.review?.sourceBasis || null
+      sourceBasis: normalizeSourceBasis(sheet.review?.sourceBasis)
     })
   };
 }
@@ -280,8 +299,9 @@ function markSheetReviewed(sheet, input) {
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
     source: sheet.source || "clinician_review",
+    sourceMetadata: normalizeSourceMetadata(sheet.sourceMetadata, sheet.source),
     review: createReviewMetadata({
-      status: "reviewed",
+      status: REVIEW_STATUS.approvedForUse,
       reviewer: input.reviewer.trim(),
       reviewedAt,
       sourceBasis: input.sourceBasis || input.reviewBasis || sheet.review?.sourceBasis || null
@@ -291,7 +311,7 @@ function markSheetReviewed(sheet, input) {
 
 function createReviewMetadata({ status, reviewer, reviewedAt, sourceBasis }) {
   return {
-    status,
+    status: normalizeReviewStatus(status),
     reviewer,
     reviewedAt,
     date: reviewedAt,
@@ -300,11 +320,68 @@ function createReviewMetadata({ status, reviewer, reviewedAt, sourceBasis }) {
   };
 }
 
+function createSourceMetadata({
+  category,
+  name,
+  sourceVersion,
+  sourceDate = null,
+  retrievedAt = null,
+  templateVersion = null,
+  generatedAt = new Date().toISOString()
+}) {
+  return {
+    category,
+    name,
+    sourceVersion,
+    sourceDate,
+    retrievedAt,
+    templateVersion,
+    sourcePolicyVersion: SOURCE_POLICY_VERSION,
+    generatedAt
+  };
+}
+
+function normalizeSourceMetadata(metadata, sourceName) {
+  if (metadata && typeof metadata === "object") {
+    return createSourceMetadata({
+      category: metadata.category || SOURCE_CATEGORY.aiGeneratedClinicalMethod,
+      name: metadata.name || sourceName || "openai",
+      sourceVersion: metadata.sourceVersion || `openai:${OPENAI_MODEL}`,
+      sourceDate: metadata.sourceDate || metadata.date || null,
+      retrievedAt: metadata.retrievedAt || null,
+      templateVersion: metadata.templateVersion || null,
+      generatedAt: metadata.generatedAt || metadata.createdAt || null
+    });
+  }
+
+  return createSourceMetadata({
+    category: sourceName === "local_fallback"
+      ? SOURCE_CATEGORY.clinicianAuthoredLocalTemplate
+      : SOURCE_CATEGORY.aiGeneratedClinicalMethod,
+    name: sourceName || "openai",
+    sourceVersion: sourceName === "local_fallback" ? "local-fallback:v1" : `openai:${OPENAI_MODEL}`
+  });
+}
+
+function normalizeReviewStatus(status) {
+  if (status === "reviewed") return REVIEW_STATUS.approvedForUse;
+  if (status === "unreviewed") return REVIEW_STATUS.draft;
+  return Object.values(REVIEW_STATUS).includes(status) ? status : REVIEW_STATUS.draft;
+}
+
+function normalizeSourceBasis(sourceBasis) {
+  if (!sourceBasis || typeof sourceBasis !== "object") return null;
+  return {
+    ...sourceBasis,
+    sourcePolicyVersion: sourceBasis.sourcePolicyVersion || SOURCE_POLICY_VERSION
+  };
+}
+
 function isCurrentSourceBasis(sheetBasis, requestedBasis) {
   if (!requestedBasis) return true;
   if (!sheetBasis) return false;
 
-  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
+  return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion", "sourcePolicyVersion"]
     .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
