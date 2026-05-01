@@ -100,6 +100,7 @@ const state = {
   sheet: null,
   answers: {},
   assessment: null,
+  reportEdited: false,
   stickyDismissed: false,
   nearTop: true
 };
@@ -129,8 +130,10 @@ const els = {
   summaryPanel: document.querySelector(".summary-panel"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
+  followUpPlan: document.querySelector("#followUpPlanInput"),
   report: document.querySelector("#reportOutput"),
   copy: document.querySelector("#copyReport"),
+  copyStatus: document.querySelector("#copyStatus"),
   pdf: document.querySelector("#exportPdf"),
   stickyBar: document.querySelector("#stickyActionBar"),
   stickyCount: document.querySelector("#stickyCompletionCount"),
@@ -165,6 +168,16 @@ els.stickyDismiss.addEventListener("click", () => {
 });
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
+els.followUpPlan.addEventListener("input", () => {
+  if (state.assessment && !state.reportEdited) {
+    setGeneratedReport();
+  }
+});
+els.report.addEventListener("input", () => {
+  state.reportEdited = true;
+  updateReportActions();
+  setCopyStatus("");
+});
 [els.age, els.sex, els.sheetType, els.caseInput].forEach((input) => {
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
@@ -233,6 +246,7 @@ async function generateSheet() {
   }
   state.answers = {};
   state.assessment = null;
+  els.followUpPlan.value = "";
   state.stickyDismissed = false;
   renderSheet();
   updateCompletion();
@@ -285,6 +299,7 @@ function renderSheet() {
         candidate.classList.toggle("active", candidate === button);
       });
       updateCompletion();
+      refreshReportIfUnedited();
     });
   });
 
@@ -294,6 +309,7 @@ function renderSheet() {
       state.answers[id] = state.answers[id] || {};
       state.answers[id].text = input.value.trim();
       updateCompletion();
+      refreshReportIfUnedited();
     });
   });
 }
@@ -479,9 +495,7 @@ function assess() {
   state.assessment = { risk, title };
   els.risk.className = `risk-panel ${risk}`;
   els.risk.innerHTML = `<strong>${title}</strong><br>${riskText(risk)}<br><br><strong>Røde flagg å kontrollere:</strong><ul>${state.sheet.redFlags.map((flag) => `<li>${escapeHtml(flag)}</li>`).join("")}</ul>`;
-  els.report.value = buildReport();
-  els.copy.disabled = false;
-  els.pdf.disabled = false;
+  setGeneratedReport();
   updateStickyActionBar();
   scrollToAssessment();
 }
@@ -493,32 +507,96 @@ function riskText(risk) {
 }
 
 function buildReport() {
-  const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
+  const subjectiveEntries = answeredEntries(state.sheet.questions);
+  const objectiveEntries = answeredEntries(state.sheet.examinations);
+  const followUpPlan = els.followUpPlan.value.trim();
+  const recommendedPlan = state.sheet.followUp.map((line) => `- ${line}`).join("\n");
+
+  return [
+    `Journalnotat - ${state.sheet.title}`,
+    "",
+    "S - Subjektivt",
+    `Problemstilling: ${els.caseInput.value.trim() || "Ikke angitt."}`,
+    `Kontekst: ${els.age.value || "Ukjent alder"} år, ${els.sex.value || "ukjent kjønn"}. Arktype: ${els.sheetType.value}. Klinisk mål: ${state.sheet.goal}`,
+    subjectiveEntries.length ? subjectiveEntries.join("\n") : "- Ingen valgte spørsmålsvar registrert.",
+    "",
+    "O - Objektivt",
+    objectiveEntries.length ? objectiveEntries.join("\n") : "- Ingen valgte undersøkelsesfunn registrert.",
+    "",
+    "A - Vurdering",
+    `${state.assessment.title}. ${riskText(state.assessment.risk)}`,
+    "Røde flagg vurdert/kontrollert:",
+    state.sheet.redFlags.map((flag) => `- ${flag}`).join("\n"),
+    "",
+    "P - Plan",
+    followUpPlan ? `Legens plan: ${followUpPlan}` : "Legens plan: ikke angitt.",
+    "Forslag/sikkerhetsnett fra ConsultAssist:",
+    recommendedPlan,
+    "",
+    "Merknad: Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal."
+  ].join("\n");
+}
+
+function answeredEntries(items) {
+  return items.flatMap((entry) => {
     const answer = state.answers[entry.id] || {};
-    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
-  }).join("\n");
+    const value = [answer.choice, answer.text].filter(Boolean).join(". ");
+    return value ? [`- ${entry.label}: ${value}`] : [];
+  });
+}
 
-  return `Journalnotat - ${state.sheet.title}
+function setGeneratedReport() {
+  state.reportEdited = false;
+  els.report.value = buildReport();
+  updateReportActions();
+  setCopyStatus("");
+}
 
-Problemstilling:
-${els.caseInput.value.trim()}
-
-Opplysninger og funn:
-${entries}
-
-Vurdering:
-${state.assessment.title}. ${riskText(state.assessment.risk)}
-
-Plan:
-${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
-
-Merknad:
-Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+function refreshReportIfUnedited() {
+  if (state.assessment && !state.reportEdited) {
+    setGeneratedReport();
+  }
 }
 
 async function copyReport() {
-  await navigator.clipboard.writeText(els.report.value);
-  els.cacheStatus.textContent = "Journalnotat kopiert";
+  const text = els.report.value;
+  if (!text.trim()) return;
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else if (!copyReportWithSelectionFallback()) {
+      throw new Error("Clipboard API unavailable");
+    }
+    els.cacheStatus.textContent = "Journalnotat kopiert";
+    setCopyStatus("Journalnotat kopiert.");
+  } catch (error) {
+    console.warn("Could not copy report automatically:", error);
+    if (copyReportWithSelectionFallback()) {
+      els.cacheStatus.textContent = "Journalnotat kopiert";
+      setCopyStatus("Journalnotat kopiert.");
+      return;
+    }
+    els.report.focus();
+    els.report.select();
+    setCopyStatus("Automatisk kopiering feilet. Teksten er markert - bruk Ctrl+C/Cmd+C.");
+  }
+}
+
+function copyReportWithSelectionFallback() {
+  els.report.focus();
+  els.report.select();
+  return document.execCommand?.("copy") === true;
+}
+
+function updateReportActions() {
+  const hasReport = els.report.value.trim().length > 0;
+  els.copy.disabled = !hasReport;
+  els.pdf.disabled = !hasReport;
+}
+
+function setCopyStatus(message) {
+  els.copyStatus.textContent = message;
 }
 
 function clearAnswers() {
@@ -533,9 +611,10 @@ function clearAnswers() {
 function resetReport() {
   els.risk.className = "risk-panel muted";
   els.risk.textContent = state.sheet ? "Fyll ut noen svar i arket for å lage vurdering." : "Lag et konsultasjonsark først, fyll det ut, og hent deretter vurdering.";
+  state.reportEdited = false;
   els.report.value = "";
-  els.copy.disabled = true;
-  els.pdf.disabled = true;
+  setCopyStatus("");
+  updateReportActions();
   updateStickyActionBar();
 }
 
