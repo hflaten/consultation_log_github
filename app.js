@@ -132,6 +132,7 @@ const els = {
   report: document.querySelector("#reportOutput"),
   copy: document.querySelector("#copyReport"),
   pdf: document.querySelector("#exportPdf"),
+  print: document.querySelector("#printReport"),
   stickyBar: document.querySelector("#stickyActionBar"),
   stickyCount: document.querySelector("#stickyCompletionCount"),
   stickyPercent: document.querySelector("#stickyCompletionPercent"),
@@ -164,7 +165,8 @@ els.stickyDismiss.addEventListener("click", () => {
   updateStickyActionBar();
 });
 els.copy.addEventListener("click", copyReport);
-els.pdf.addEventListener("click", () => window.print());
+els.pdf.addEventListener("click", exportReportPdf);
+els.print.addEventListener("click", () => window.print());
 [els.age, els.sex, els.sheetType, els.caseInput].forEach((input) => {
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
@@ -482,6 +484,7 @@ function assess() {
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
+  els.print.disabled = false;
   updateStickyActionBar();
   scrollToAssessment();
 }
@@ -521,6 +524,19 @@ async function copyReport() {
   els.cacheStatus.textContent = "Journalnotat kopiert";
 }
 
+function exportReportPdf() {
+  try {
+    if (!window.ConsultAssistPdf) {
+      throw new Error("PDF-eksporten er ikke klar.");
+    }
+    window.ConsultAssistPdf.exportReportToPdf(els.report.value);
+    els.cacheStatus.textContent = "PDF eksportert";
+  } catch (error) {
+    console.warn("PDF export failed:", error);
+    els.cacheStatus.textContent = `${error.message} Bruk Skriv ut / Lagre som PDF.`;
+  }
+}
+
 function clearAnswers() {
   state.answers = {};
   state.assessment = null;
@@ -536,6 +552,7 @@ function resetReport() {
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
+  els.print.disabled = true;
   updateStickyActionBar();
 }
 
