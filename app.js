@@ -1,6 +1,6 @@
-const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
-const SCHEMA_VERSION = "v1";
+const SHEET_VERSION = "v2";
+const PROMPT_VERSION = "v2";
+const SCHEMA_VERSION = "v2";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
@@ -20,18 +20,18 @@ Input:
 - Klinisk ramme: fastlegekontor i Norge
 
 Output som JSON:
-- sheet_title
-- clinical_goal
-- red_flags: korte punkter
-- questions: liste med { id, label, why_it_matters, answer_buttons, free_text_placeholder }
-- examinations: liste med { id, label, answer_buttons, free_text_placeholder }
-- initial_assessment_rules: kort veiledning for alvorlighetsgrad
-- follow_up_options: anbefalte neste steg
-- journal_note_template: struktur for ferdig journalnotat
+- title
+- goal
+- redFlags: korte punkter
+- anamneseGroups: faste grupper med spørsmål: Hovedproblem / presentasjonsklage, Sykehistorie, Tidligere sykdommer, Medisiner og allergier, Sosialt/familie/relevant kontekst, ICE, Røde flagg
+- hvert spørsmål: { id, label, why, questionType, buttons, placeholder }, der questionType er open, specific eller yes_no
+- examinations: must-do undersøkelser for problemstillingen med samme spørsmålsformat
+- followUp: anbefalte neste steg
 
 Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
-- Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
+- Start med åpne spørsmål, deretter strukturerte svarknapper og et lite fritekstfelt.
+- Inkluder ICE når relevant, men la røde flagg og hastegrad dominere ved akuttvurdering.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
 
@@ -44,22 +44,39 @@ const dizzinessTemplate = {
     "Vedvarende oppkast, dehydrering eller falltendens",
     "Ny hørselstap, alvorlig infeksjonstegn eller nakkestivhet"
   ],
-  questions: [
-    item("q1", "Debut og forløp", "Skiller akutt alvorlig sykdom fra benign episodisk svimmelhet.", ["Akutt", "Gradvis", "Anfallsvis", "Konstant"], "Når startet det, og hvordan har det utviklet seg?"),
-    item("q2", "Karakter", "Vertigo, presynkope og ustøhet peker mot ulike videre spor.", ["Rotatorisk", "Nær besvimelse", "Ustøhet", "Uklart"], "Pasientens egne ord."),
-    item("q3", "Utløsende faktorer", "Stillingsutløst svimmelhet kan passe med BPPV.", ["Hodebevegelse", "Reise seg", "Anstrengelse", "Ingen tydelig"], "Hva utløser eller lindrer plagene?"),
-    item("q4", "Nevrologiske symptomer", "Røde flagg for sentral årsak må avklares tidlig.", ["Nei", "Ja", "Usikkert"], "Dobbeltsyn, talevansker, nummenhet, pareser, ataksi."),
-    item("q5", "Kardiopulmonale symptomer", "Kan peke mot arytmi, iskemi eller annen akutt somatikk.", ["Nei", "Ja", "Usikkert"], "Brystsmerter, palpitasjoner, tungpust, synkope."),
-    item("q6", "Øre-/infeksjonssymptomer", "Hørselstap, tinnitus og infeksjon påvirker vurdering og tiltak.", ["Ingen", "Tinnitus", "Hørselstap", "Infeksjon"], "Øresmerter, feber, nylig luftveisinfeksjon."),
-    item("q7", "Legemidler og rusmidler", "Bivirkninger og blodtrykksfall er vanlige reversible årsaker.", ["Ingen relevante", "Mulig relevant", "Usikkert"], "Nye medisiner, antihypertensiva, alkohol, andre rusmidler.")
+  anamneseGroups: [
+    group("hovedproblem", "Hovedproblem / presentasjonsklage", [
+      item("q1", "Hva er det viktigste problemet i dag?", "Åpner konsultasjonen med pasientens egne ord.", [], "La pasienten beskrive svimmelheten og hovedbekymringen.", "open")
+    ]),
+    group("sykehistorie", "Sykehistorie", [
+      item("q2", "Debut og forløp", "Skiller akutt alvorlig sykdom fra benign episodisk svimmelhet.", ["Akutt", "Gradvis", "Anfallsvis", "Konstant"], "Når startet det, og hvordan har det utviklet seg?", "specific"),
+      item("q3", "Karakter", "Vertigo, presynkope og ustøhet peker mot ulike videre spor.", ["Rotatorisk", "Nær besvimelse", "Ustøhet", "Uklart"], "Pasientens egne ord.", "specific"),
+      item("q4", "Utløsende/lindrende faktorer", "Stillingsutløst svimmelhet kan passe med BPPV.", ["Hodebevegelse", "Reise seg", "Anstrengelse", "Ingen tydelig"], "Hva utløser eller lindrer plagene?", "specific")
+    ]),
+    group("tidligere-sykdommer", "Tidligere sykdommer", [
+      item("q5", "Tidligere sykdom og risiko", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Hjerte/kar", "Nevrologisk", "Annet relevant"], "Tidligere TIA/slag, hjertesykdom, diabetes, migrene.", "specific")
+    ]),
+    group("medisiner-allergier", "Medisiner og allergier", [
+      item("q6", "Legemidler og rusmidler", "Bivirkninger og blodtrykksfall er vanlige reversible årsaker.", ["Ingen relevante", "Mulig relevant", "Usikkert"], "Nye medisiner, antihypertensiva, alkohol, andre rusmidler.", "specific")
+    ]),
+    group("kontekst", "Sosialt/familie/relevant kontekst", [
+      item("q7", "Funksjon, fall og støtte hjemme", "Fallrisiko og hjemmesituasjon påvirker tiltak og oppfølging.", ["Fungerer greit", "Falltendens", "Bor alene", "Trenger støtte"], "Arbeid, bilkjøring, fall, trygghet hjemme.", "specific")
+    ]),
+    group("ice", "ICE", [
+      item("q8", "Pasientens tanker, bekymringer og forventninger", "ICE avklarer agenda uten å dominere ved triage.", [], "Hva tror pasienten dette skyldes, hva bekymrer mest, og hva håper pasienten på?", "open")
+    ]),
+    group("rode-flagg", "Røde flagg", [
+      item("q9", "Nevrologiske symptomer", "Røde flagg for sentral årsak må avklares tidlig.", ["Nei", "Ja", "Usikkert"], "Dobbeltsyn, talevansker, nummenhet, pareser, ataksi.", "yes_no"),
+      item("q10", "Kardiopulmonale symptomer", "Kan peke mot arytmi, iskemi eller annen akutt somatikk.", ["Nei", "Ja", "Usikkert"], "Brystsmerter, palpitasjoner, tungpust, synkope.", "yes_no")
+    ])
   ],
   examinations: [
-    item("e1", "Allmenntilstand og vitale parametre", "Fanger akutt sykdom og sirkulatorisk påvirkning.", ["Upåfallende", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2, respirasjon."),
-    item("e2", "Ortostatisk blodtrykk", "Vurderer ortostatisk hypotensjon.", ["Normal", "Patologisk", "Ikke utført"], "Liggende/stående BT og puls."),
-    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange."),
-    item("e4", "Ørestatus og nystagmus", "Støtter perifer vestibulær vurdering.", ["Normal", "Avvik", "Ikke utført"], "Otoskopi, spontan-/blikkretningsnystagmus."),
-    item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon."),
-    item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.")
+    item("e1", "Allmenntilstand og vitale parametre", "Fanger akutt sykdom og sirkulatorisk påvirkning.", ["Upåfallende", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2, respirasjon.", "specific"),
+    item("e2", "Ortostatisk blodtrykk", "Vurderer ortostatisk hypotensjon.", ["Normal", "Patologisk", "Ikke utført"], "Liggende/stående BT og puls.", "specific"),
+    item("e3", "Nevrologisk undersøkelse", "Avklarer sentrale tegn.", ["Normal", "Avvik", "Ikke utført"], "Kranialnerver, kraft, sensibilitet, koordinasjon, gange.", "specific"),
+    item("e4", "Ørestatus og nystagmus", "Støtter perifer vestibulær vurdering.", ["Normal", "Avvik", "Ikke utført"], "Otoskopi, spontan-/blikkretningsnystagmus.", "specific"),
+    item("e5", "Dix-Hallpike / posisjonstester", "Relevant ved stillingsutløst vertigo.", ["Negativ", "Positiv", "Ikke indisert/utført"], "Side, nystagmus, symptomreproduksjon.", "specific"),
+    item("e6", "EKG ved indikasjon", "Aktuelt ved synkope, palpitasjoner eller risikoprofil.", ["Normal", "Avvik", "Ikke indisert/utført"], "Rytme, frekvens, ledningsforstyrrelser.", "specific")
   ],
   followUp: [
     "Akutt innleggelse/konferering ved nevrologiske utfall, synkope med alarmsymptomer eller ustabil pasient.",
@@ -77,17 +94,35 @@ const genericTemplate = {
     "Sterke smerter, påvirket allmenntilstand eller sirkulatorisk påvirkning",
     "Symptomer som ikke passer med benign forklaring"
   ],
-  questions: [
-    item("q1", "Debut og varighet", "Tidsforløpet styrer hastegrad og differensialdiagnoser.", ["Akutt", "Subakutt", "Langvarig", "Tilbakevendende"], "Når startet plagene?"),
-    item("q2", "Alvorlighetsgrad og funksjon", "Avklarer hvor mye plagene påvirker pasienten.", ["Lett", "Moderat", "Alvorlig", "Varierende"], "Arbeid, søvn, aktivitet, egenomsorg."),
-    item("q3", "Ledsagende symptomer", "Finner mønstre og røde flagg.", ["Ingen", "Noen", "Flere", "Usikkert"], "Feber, smerter, vekttap, nevrologi, annet."),
-    item("q4", "Tidligere sykdom og risiko", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Relevant", "Usikkert"], "Komorbiditet, familiehistorie, graviditet, immunsuppresjon."),
-    item("q5", "Legemidler og tiltak forsøkt", "Avklarer bivirkninger og effekt av egenbehandling.", ["Ingen", "Noe effekt", "Ingen effekt", "Bivirkning"], "Medikamenter, naturmidler, egenbehandling.")
+  anamneseGroups: [
+    group("hovedproblem", "Hovedproblem / presentasjonsklage", [
+      item("q1", "Hva er det viktigste problemet i dag?", "Åpner med pasientens egne ord og agenda.", [], "Beskriv hovedplagen slik pasienten uttrykker den.", "open")
+    ]),
+    group("sykehistorie", "Sykehistorie", [
+      item("q2", "Start, varighet og utvikling", "Tidsforløpet styrer hastegrad og differensialdiagnoser.", ["Akutt", "Subakutt", "Langvarig", "Tilbakevendende"], "Når startet plagene, og hvordan har de utviklet seg?", "specific"),
+      item("q3", "Alvorlighetsgrad og funksjon", "Avklarer hvor mye plagene påvirker pasienten.", ["Lett", "Moderat", "Alvorlig", "Varierende"], "Arbeid, søvn, aktivitet, egenomsorg.", "specific"),
+      item("q4", "Utløsende/lindrende faktorer", "Gir mønster for videre klinisk spor.", ["Utløses tydelig", "Lindres tydelig", "Ingen tydelig", "Usikkert"], "Hva forverrer eller lindrer plagene?", "specific")
+    ]),
+    group("tidligere-sykdommer", "Tidligere sykdommer", [
+      item("q5", "Relevant tidligere sykdom", "Setter symptomet i klinisk kontekst.", ["Ingen relevant", "Relevant", "Usikkert"], "Komorbiditet, tidligere episoder, graviditet, immunsuppresjon.", "specific")
+    ]),
+    group("medisiner-allergier", "Medisiner og allergier", [
+      item("q6", "Legemidler, allergier og tiltak forsøkt", "Avklarer bivirkninger, kontraindikasjoner og effekt av egenbehandling.", ["Ingen", "Noe effekt", "Ingen effekt", "Mulig bivirkning/allergi"], "Faste/nylige medisiner, allergier, naturmidler, egenbehandling.", "specific")
+    ]),
+    group("kontekst", "Sosialt/familie/relevant kontekst", [
+      item("q7", "Sosial og familiær kontekst", "Kontekst kan påvirke risiko, mestring og plan.", ["Ingen særskilt", "Relevant familie", "Arbeid/funksjon", "Omsorgsbehov"], "Arbeid, hjemmesituasjon, familiehistorie, belastninger.", "specific")
+    ]),
+    group("ice", "ICE", [
+      item("q8", "Tanker, bekymringer og forventninger", "Avklarer pasientens perspektiv og mål for konsultasjonen.", [], "Hva tror pasienten selv, hva bekymrer mest, og hva ønsker pasienten hjelp til?", "open")
+    ]),
+    group("rode-flagg", "Røde flagg", [
+      item("q9", "Røde flagg eller rask forverring", "Sikkerhetskritiske symptomer må avklares eksplisitt.", ["Nei", "Ja", "Usikkert"], "Sterke smerter, feber, vekttap, nevrologi, sirkulatorisk påvirkning eller annet.", "yes_no")
+    ])
   ],
   examinations: [
-    item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov."),
-    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn."),
-    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.")
+    item("e1", "Allmenntilstand og vitale parametre", "Grunnlag for hastegrad.", ["Normal", "Avvik", "Ikke utført"], "BT, puls, temp, SpO2 etter behov.", "specific"),
+    item("e2", "Målrettet klinisk undersøkelse", "Knytter funn til problemstillingen.", ["Normal", "Avvik", "Ikke utført"], "Beskriv relevante funn.", "specific"),
+    item("e3", "Supplerende tester ved indikasjon", "Støtter beslutning om videre plan.", ["Ikke indisert", "Utført normal", "Utført avvik"], "Urin, CRP, EKG, blodprøver eller annet.", "specific")
   ],
   followUp: [
     "Akutt tiltak ved røde flagg eller påvirket pasient.",
@@ -174,8 +209,12 @@ window.addEventListener("resize", updateStickyPosition);
 updateFlowHint();
 updateStickyPosition();
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function group(id, title, items) {
+  return { id, title, items };
+}
+
+function item(id, label, why, buttons, placeholder, questionType = "specific") {
+  return { id, label, why, buttons, placeholder, questionType };
 }
 
 function normalizeTopic(text) {
@@ -204,6 +243,7 @@ async function generateSheet() {
   const cached = localStorage.getItem(key);
   if (cached) {
     state.sheet = JSON.parse(cached);
+    normalizeSheet(state.sheet);
     ensureReviewMetadata(state.sheet, sourceBasis());
     if (!isCurrentSourceBasis(state.sheet.review.sourceBasis, sourceBasis())) {
       localStorage.removeItem(key);
@@ -216,11 +256,13 @@ async function generateSheet() {
     els.cacheStatus.textContent = "Lager spesialisert ark med AI";
     try {
       state.sheet = await generateAiSheet(key);
+      normalizeSheet(state.sheet);
       localStorage.setItem(key, JSON.stringify(state.sheet));
     } catch (error) {
       console.warn("AI generation failed, using local fallback:", error);
       const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
       state.sheet = structuredClone(base);
+      normalizeSheet(state.sheet);
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
@@ -268,11 +310,12 @@ async function generateAiSheet(key) {
 
 function renderSheet() {
   const sheet = state.sheet;
+  normalizeSheet(sheet);
   els.sheetSubtitle.textContent = `${sheet.title} · ${sheet.goal}`;
   updateReviewUi();
   els.sheetContainer.className = "";
   els.sheetContainer.innerHTML = [
-    renderSection("Spørsmål", sheet.questions),
+    renderAnamneseGroups(sheet.anamneseGroups),
     renderSection("Undersøkelser", sheet.examinations)
   ].join("");
 
@@ -377,6 +420,7 @@ function reviewSummary(review) {
 }
 
 function ensureReviewMetadata(sheet, fallbackBasis) {
+  normalizeSheet(sheet);
   sheet.review = {
     status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
     reviewer: sheet.review?.reviewer || null,
@@ -428,21 +472,122 @@ function stableHash(text) {
   return Math.abs(hash).toString(36);
 }
 
+function normalizeSheet(sheet) {
+  if (!sheet || typeof sheet !== "object") return sheet;
+
+  sheet.anamneseGroups = normalizeAnamneseGroups(sheet);
+  sheet.questions = flattenGroups(sheet.anamneseGroups);
+  sheet.examinations = normalizeItems(sheet.examinations, "e");
+  sheet.redFlags = Array.isArray(sheet.redFlags) ? sheet.redFlags : [];
+  sheet.followUp = Array.isArray(sheet.followUp) ? sheet.followUp : [];
+  return sheet;
+}
+
+function normalizeAnamneseGroups(sheet) {
+  if (Array.isArray(sheet.anamneseGroups) && sheet.anamneseGroups.length > 0) {
+    return sheet.anamneseGroups.map((entry, index) => {
+      const title = entry.title || `Anamnese ${index + 1}`;
+      const id = entry.id || slugify(title) || `anamnese-${index + 1}`;
+      const items = normalizeItems(entry.items || entry.questions, `q${index + 1}`, id, title);
+      return group(id, title, orderOpenFirst(items));
+    }).filter((entry) => entry.items.length > 0);
+  }
+
+  if (Array.isArray(sheet.questions) && sheet.questions.length > 0) {
+    return [
+      group("sykehistorie", "Sykehistorie", orderOpenFirst(normalizeItems(sheet.questions, "q", "sykehistorie", "Sykehistorie")))
+    ];
+  }
+
+  return [];
+}
+
+function normalizeItems(entries, prefix, categoryId = null, categoryTitle = null) {
+  if (!Array.isArray(entries)) return [];
+
+  return entries.map((entry, index) => ({
+    id: entry.id || `${prefix}${index + 1}`,
+    label: entry.label || "",
+    why: entry.why || "",
+    buttons: Array.isArray(entry.buttons) ? entry.buttons : [],
+    placeholder: entry.placeholder || "",
+    questionType: normalizeQuestionType(entry.questionType || entry.question_type),
+    categoryId: categoryId || entry.categoryId || null,
+    categoryTitle: categoryTitle || entry.categoryTitle || null
+  }));
+}
+
+function normalizeQuestionType(value) {
+  return ["open", "specific", "yes_no"].includes(value) ? value : "specific";
+}
+
+function orderOpenFirst(items) {
+  return [...items].sort((a, b) => Number(b.questionType === "open") - Number(a.questionType === "open"));
+}
+
+function flattenGroups(groups) {
+  return groups.flatMap((entry) => entry.items.map((itemEntry) => ({
+    ...itemEntry,
+    categoryId: entry.id,
+    categoryTitle: entry.title
+  })));
+}
+
+function slugify(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/æ/g, "ae")
+    .replace(/ø/g, "o")
+    .replace(/å/g, "a")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function renderAnamneseGroups(groups) {
+  return `<div class="sheet-section anamnese-section">
+    <h3>Anamnese</h3>
+    ${groups.map(renderQuestionGroup).join("")}
+  </div>`;
+}
+
+function renderQuestionGroup(entry) {
+  return `<section class="question-group" aria-labelledby="group-${escapeHtml(entry.id)}">
+    <h4 id="group-${escapeHtml(entry.id)}">${escapeHtml(entry.title)}</h4>
+    ${entry.items.map(renderItem).join("")}
+  </section>`;
+}
+
 function renderSection(title, items) {
   return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
 }
 
 function renderItem(entry) {
+  const isOpen = entry.questionType === "open";
+  const buttons = isOpen ? "" : `<div class="button-row">
+      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
+    </div>`;
+  const inputLabel = isOpen ? "Åpent svar" : "Kort fritekst";
+
   return `<article class="item-card">
     <div class="item-title">
-      <strong>${escapeHtml(entry.label)}</strong>
+      <div>
+        <strong>${escapeHtml(entry.label)}</strong>
+        <span class="question-type">${escapeHtml(questionTypeLabel(entry.questionType))}</span>
+      </div>
       <span>${escapeHtml(entry.why)}</span>
     </div>
-    <div class="button-row">
-      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
-    </div>
-    <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
+    ${buttons}
+    <label class="free-text-label">
+      <span>${inputLabel}</span>
+      <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
+    </label>
   </article>`;
+}
+
+function questionTypeLabel(type) {
+  if (type === "open") return "Åpent";
+  if (type === "yes_no") return "Ja/nei";
+  return "Spesifikt";
 }
 
 function updateCompletion() {
@@ -493,18 +638,22 @@ function riskText(risk) {
 }
 
 function buildReport() {
-  const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
-    const answer = state.answers[entry.id] || {};
-    return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
-  }).join("\n");
+  const anamnese = state.sheet.anamneseGroups.map((groupEntry) => {
+    const lines = groupEntry.items.map((entry) => journalLine(entry)).join("\n");
+    return `${groupEntry.title}:\n${lines}`;
+  }).join("\n\n");
+  const examinations = state.sheet.examinations.map((entry) => journalLine(entry)).join("\n");
 
   return `Journalnotat - ${state.sheet.title}
 
 Problemstilling:
 ${els.caseInput.value.trim()}
 
-Opplysninger og funn:
-${entries}
+Anamnese:
+${anamnese}
+
+Undersøkelser:
+${examinations}
 
 Vurdering:
 ${state.assessment.title}. ${riskText(state.assessment.risk)}
@@ -514,6 +663,11 @@ ${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
 
 Merknad:
 Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+}
+
+function journalLine(entry) {
+  const answer = state.answers[entry.id] || {};
+  return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
 }
 
 async function copyReport() {

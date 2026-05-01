@@ -173,7 +173,10 @@ async function generateSheet(input) {
         "Svar kun med JSON som matcher skjemaet.",
         "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
         "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
-        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging.",
+        "Grupper anamnesespørsmål i fastlege-struktur: hovedproblem, sykehistorie, tidligere sykdommer, medisiner/allergier, sosialt/familie/relevant kontekst, ICE og røde flagg.",
+        "Hvert spørsmål skal ha questionType lik open, specific eller yes_no. Start relevante grupper med ett åpent spørsmål før mer strukturerte knapper.",
+        "Ta med ICE når relevant for vanlig fastlegekonsultasjon, men hold ICE kort ved akuttvurdering eller tydelig triage."
       ].join(" "),
       input: [
         {
@@ -235,12 +238,16 @@ function parseResponseJson(data) {
 }
 
 function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
+  const anamneseGroups = normalizeAnamneseGroups(sheet);
+  const examinations = normalizeItems(sheet.examinations, "e");
+
   return {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: sheet.redFlags,
-    questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
-    examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
+    anamneseGroups,
+    questions: flattenGroups(anamneseGroups),
+    examinations,
     followUp: sheet.followUp,
     cacheKey,
     createdAt: new Date().toISOString(),
@@ -255,8 +262,15 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
 }
 
 function normalizeCachedSheet(sheet, cacheKey) {
+  const anamneseGroups = normalizeAnamneseGroups(sheet);
+
   return {
     ...sheet,
+    anamneseGroups,
+    questions: flattenGroups(anamneseGroups),
+    examinations: normalizeItems(sheet.examinations, "e"),
+    redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
+    followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
     cacheKey: sheet.cacheKey || cacheKey,
     review: createReviewMetadata({
       status: sheet.review?.status === "reviewed" ? "reviewed" : "unreviewed",
@@ -269,13 +283,15 @@ function normalizeCachedSheet(sheet, cacheKey) {
 
 function markSheetReviewed(sheet, input) {
   const reviewedAt = new Date().toISOString();
+  const anamneseGroups = normalizeAnamneseGroups(sheet);
 
   return {
     title: sheet.title,
     goal: sheet.goal,
     redFlags: Array.isArray(sheet.redFlags) ? sheet.redFlags : [],
-    questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
-    examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
+    anamneseGroups,
+    questions: flattenGroups(anamneseGroups),
+    examinations: normalizeItems(sheet.examinations, "e"),
     followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
@@ -308,22 +324,108 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
     .every((key) => sheetBasis[key] === requestedBasis[key]);
 }
 
-function item(id, label, why, buttons, placeholder) {
-  return { id, label, why, buttons, placeholder };
+function normalizeAnamneseGroups(sheet) {
+  if (Array.isArray(sheet.anamneseGroups) && sheet.anamneseGroups.length > 0) {
+    return sheet.anamneseGroups.map((group, groupIndex) => {
+      const title = group.title || legacyCategoryTitle(group.category) || `Anamnese ${groupIndex + 1}`;
+      const id = group.id || slugify(title) || `anamnese-${groupIndex + 1}`;
+
+      return {
+        id,
+        title,
+        items: normalizeItems(group.items || group.questions, `q${groupIndex + 1}`, id, title)
+      };
+    }).filter((group) => group.items.length > 0);
+  }
+
+  if (Array.isArray(sheet.questions) && sheet.questions.length > 0) {
+    return [{
+      id: "sykehistorie",
+      title: "Sykehistorie",
+      items: normalizeItems(sheet.questions, "q", "sykehistorie", "Sykehistorie")
+    }];
+  }
+
+  return [];
+}
+
+function normalizeItems(entries, prefix, categoryId = null, categoryTitle = null) {
+  if (!Array.isArray(entries)) return [];
+
+  return entries.map((entry, index) => item(
+    entry.id || `${prefix}${index + 1}`,
+    entry.label,
+    entry.why,
+    entry.buttons || entry.answer_buttons,
+    entry.placeholder || entry.free_text_placeholder,
+    entry.questionType || entry.question_type,
+    categoryId || entry.categoryId || null,
+    categoryTitle || entry.categoryTitle || null
+  ));
+}
+
+function flattenGroups(groups) {
+  return groups.flatMap((group) => group.items.map((entry) => ({
+    ...entry,
+    categoryId: group.id,
+    categoryTitle: group.title
+  })));
+}
+
+function legacyCategoryTitle(category) {
+  const titles = {
+    main_complaint: "Hovedproblem / presentasjonsklage",
+    history: "Sykehistorie",
+    past_medical_history: "Tidligere sykdommer",
+    medications_allergies: "Medisiner og allergier",
+    social_family_context: "Sosialt/familie/relevant kontekst",
+    ice: "ICE",
+    red_flags: "Røde flagg"
+  };
+
+  return titles[category] || "";
+}
+
+function slugify(value) {
+  return String(value)
+    .toLowerCase()
+    .replace(/æ/g, "ae")
+    .replace(/ø/g, "o")
+    .replace(/å/g, "a")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
+function questionType(value) {
+  return ["open", "specific", "yes_no"].includes(value) ? value : "specific";
+}
+
+function item(id, label, why, buttons, placeholder, type = "specific", categoryId = null, categoryTitle = null) {
+  return {
+    id,
+    label: label || "",
+    why: why || "",
+    buttons: Array.isArray(buttons) ? buttons : [],
+    placeholder: placeholder || "",
+    questionType: questionType(type),
+    categoryId,
+    categoryTitle
+  };
 }
 
 function sheetJsonSchema() {
   const option = {
     type: "object",
     additionalProperties: false,
-    required: ["id", "label", "why", "buttons", "placeholder"],
+    required: ["id", "label", "why", "buttons", "placeholder", "questionType"],
     properties: {
       id: { type: "string" },
       label: { type: "string" },
       why: { type: "string" },
+      questionType: { type: "string", enum: ["open", "specific", "yes_no"] },
       buttons: {
         type: "array",
-        minItems: 2,
+        minItems: 0,
         maxItems: 5,
         items: { type: "string" }
       },
@@ -331,10 +433,37 @@ function sheetJsonSchema() {
     }
   };
 
+  const anamneseGroup = {
+    type: "object",
+    additionalProperties: false,
+    required: ["id", "title", "items"],
+    properties: {
+      id: { type: "string" },
+      title: {
+        type: "string",
+        enum: [
+          "Hovedproblem / presentasjonsklage",
+          "Sykehistorie",
+          "Tidligere sykdommer",
+          "Medisiner og allergier",
+          "Sosialt/familie/relevant kontekst",
+          "ICE",
+          "Røde flagg"
+        ]
+      },
+      items: {
+        type: "array",
+        minItems: 1,
+        maxItems: 5,
+        items: option
+      }
+    }
+  };
+
   return {
     type: "object",
     additionalProperties: false,
-    required: ["title", "goal", "redFlags", "questions", "examinations", "followUp"],
+    required: ["title", "goal", "redFlags", "anamneseGroups", "examinations", "followUp"],
     properties: {
       title: { type: "string" },
       goal: { type: "string" },
@@ -344,11 +473,11 @@ function sheetJsonSchema() {
         maxItems: 8,
         items: { type: "string" }
       },
-      questions: {
+      anamneseGroups: {
         type: "array",
         minItems: 5,
-        maxItems: 12,
-        items: option
+        maxItems: 7,
+        items: anamneseGroup
       },
       examinations: {
         type: "array",
