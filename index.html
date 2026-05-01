@@ -20,51 +20,58 @@
           </div>
         </header>
 
-        <section class="input-panel" aria-labelledby="case-heading">
-          <div class="panel-head">
-            <div>
-              <h2 id="case-heading">Pasient og problemstilling</h2>
-              <p>Beskriv konsultasjonen. Arket hentes fra cache når samme type finnes.</p>
+        <section id="setupPanel" class="input-panel" aria-labelledby="case-heading">
+          <div id="setupSummary" class="setup-summary" hidden>
+            <span id="setupSummaryText" class="setup-summary-text"></span>
+            <button id="editSetup" class="text-button" type="button" aria-expanded="false" aria-controls="setupForm">Endre</button>
+          </div>
+
+          <div id="setupForm" class="setup-form">
+            <div class="panel-head">
+              <div>
+                <h2 id="case-heading">Pasient og problemstilling</h2>
+                <p>Beskriv konsultasjonen. Arket hentes fra cache når samme type finnes.</p>
+              </div>
+              <button id="loadExample" class="ghost-button" type="button">Eksempel</button>
             </div>
-            <button id="loadExample" class="ghost-button" type="button">Eksempel</button>
-          </div>
 
-          <div class="form-grid">
-            <label>
-              Alder
-              <input id="ageInput" inputmode="numeric" value="44" aria-label="Alder">
+            <div class="form-grid">
+              <label>
+                Alder
+                <input id="ageInput" inputmode="numeric" value="44" aria-label="Alder">
+              </label>
+              <label>
+                Kjønn
+                <select id="sexInput" aria-label="Kjønn">
+                  <option value="mann">Mann</option>
+                  <option value="kvinne">Kvinne</option>
+                  <option value="annet">Annet</option>
+                </select>
+              </label>
+              <label>
+                Arktype
+                <select id="sheetType" aria-label="Arktype">
+                  <option value="minimumsliste">Minimumsliste</option>
+                  <option value="akuttvurdering">Akuttvurdering</option>
+                  <option value="oppfølging">Oppfølging</option>
+                </select>
+              </label>
+            </div>
+
+            <label class="full-label">
+              Presenterende problemstilling
+              <textarea id="caseInput" rows="4">Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.</textarea>
             </label>
-            <label>
-              Kjønn
-              <select id="sexInput" aria-label="Kjønn">
-                <option value="mann">Mann</option>
-                <option value="kvinne">Kvinne</option>
-                <option value="annet">Annet</option>
-              </select>
-            </label>
-            <label>
-              Arktype
-              <select id="sheetType" aria-label="Arktype">
-                <option value="minimumsliste">Minimumsliste</option>
-                <option value="akuttvurdering">Akuttvurdering</option>
-                <option value="oppfølging">Oppfølging</option>
-              </select>
-            </label>
-          </div>
 
-          <label class="full-label">
-            Presenterende problemstilling
-            <textarea id="caseInput" rows="4">Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.</textarea>
-          </label>
+            <details class="prompt-box">
+              <summary>Prompt som forklarer hvilken type ark legen trenger</summary>
+              <textarea id="promptInput" rows="10"></textarea>
+            </details>
 
-          <details class="prompt-box">
-            <summary>Prompt som forklarer hvilken type ark legen trenger</summary>
-            <textarea id="promptInput" rows="10"></textarea>
-          </details>
-
-          <div class="actions">
-            <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
-            <button id="clearSession" class="secondary-button" type="button">Nullstill svar</button>
+            <div class="actions">
+              <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
+              <button id="clearSession" class="secondary-button" type="button">Nullstill svar</button>
+            </div>
           </div>
         </section>
 

@@ -94,10 +94,16 @@ const genericTemplate = {
 const state = {
   sheet: null,
   answers: {},
-  assessment: null
+  assessment: null,
+  setupCollapsed: false
 };
 
 const els = {
+  inputPanel: document.querySelector("#setupPanel"),
+  setupForm: document.querySelector("#setupForm"),
+  setupSummary: document.querySelector("#setupSummary"),
+  setupSummaryText: document.querySelector("#setupSummaryText"),
+  editSetup: document.querySelector("#editSetup"),
   age: document.querySelector("#ageInput"),
   sex: document.querySelector("#sexInput"),
   sheetType: document.querySelector("#sheetType"),
@@ -130,6 +136,7 @@ els.clear.addEventListener("click", clearAnswers);
 els.assess.addEventListener("click", assess);
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
+els.editSetup.addEventListener("click", () => setSetupCollapsed(false));
 
 function item(id, label, why, buttons, placeholder) {
   return { id, label, why, buttons, placeholder };
@@ -185,6 +192,7 @@ async function generateSheet() {
   state.answers = {};
   state.assessment = null;
   renderSheet();
+  setSetupCollapsed(true);
   updateCompletion();
   resetReport();
 }
@@ -243,6 +251,36 @@ function renderSheet() {
       updateCompletion();
     });
   });
+}
+
+function setSetupCollapsed(isCollapsed) {
+  state.setupCollapsed = Boolean(isCollapsed && state.sheet);
+  els.inputPanel.classList.toggle("is-collapsed", state.setupCollapsed);
+  els.setupForm.hidden = state.setupCollapsed;
+  els.setupSummary.hidden = !state.setupCollapsed;
+  els.inputPanel.setAttribute("aria-expanded", String(!state.setupCollapsed));
+
+  if (state.setupCollapsed) {
+    els.setupSummaryText.textContent = setupSummaryText();
+  }
+}
+
+function setupSummaryText() {
+  const age = els.age.value.trim();
+  const sex = selectedOptionText(els.sex);
+  const sheetType = selectedOptionText(els.sheetType);
+  const condition = summarizePresentation(els.caseInput.value);
+  return [sex, age ? `${age} år` : "", condition, sheetType].filter(Boolean).join(" · ");
+}
+
+function selectedOptionText(select) {
+  return select.options[select.selectedIndex]?.textContent.trim() || select.value;
+}
+
+function summarizePresentation(text) {
+  const normalized = normalizeTopic(text);
+  if (normalized === "svimmelhet") return "Svimmelhet";
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function renderSection(title, items) {
