@@ -11,8 +11,8 @@ Static GP consultation-sheet website intended for deployment to Vercel.
 - Vercel
 - Project: `custombase/consultassist`
 - Production URL: https://consultassist.vercel.app
-- Deployment URL: https://consultassist-7yqbpcnyg-custombase.vercel.app
-- Inspect URL: https://vercel.com/custombase/consultassist/HPhRwPjrbb4R4qLHxumhptgHJzfD
+- Latest ready deployment URL: https://consultassist-n3gij3iba-custombase.vercel.app
+- Latest inspect URL: https://vercel.com/custombase/consultassist/8WoHUnFWLzCEaEuZxYMydhCLjeDd
 - Status: deployed to Vercel and connected to GitHub.
 - Previous here.now preview: https://spruce-ledger-n4kv.here.now/
 
