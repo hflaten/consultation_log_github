@@ -54,6 +54,15 @@ button:disabled {
   opacity: 0.55;
 }
 
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+summary:focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
+}
+
 .secondary-button,
 .ghost-button {
   background: #edf3f1;
@@ -217,6 +226,15 @@ textarea {
   gap: 10px;
 }
 
+.utility-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.utility-panel .actions {
+  margin: 0;
+}
+
 .sheet-layout {
   display: grid;
   gap: 18px;
@@ -309,6 +327,11 @@ textarea {
   color: var(--ink);
   min-height: 36px;
   padding: 0 12px;
+}
+
+.answer-button:focus-visible {
+  outline: 3px solid var(--teal);
+  outline-offset: 2px;
 }
 
 .answer-button:hover,

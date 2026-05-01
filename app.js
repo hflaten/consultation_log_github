@@ -224,15 +224,8 @@ function renderSheet() {
   ].join("");
 
   document.querySelectorAll(".answer-button").forEach((button) => {
-    button.addEventListener("click", () => {
-      const id = button.dataset.id;
-      state.answers[id] = state.answers[id] || {};
-      state.answers[id].choice = button.dataset.value;
-      document.querySelectorAll(`.answer-button[data-id="${id}"]`).forEach((candidate) => {
-        candidate.classList.toggle("active", candidate === button);
-      });
-      updateCompletion();
-    });
+    button.addEventListener("click", () => selectAnswerButton(button));
+    button.addEventListener("keydown", handleAnswerButtonKeydown);
   });
 
   document.querySelectorAll(".free-text").forEach((input) => {
@@ -245,20 +238,75 @@ function renderSheet() {
   });
 }
 
+function handleAnswerButtonKeydown(event) {
+  const button = event.currentTarget;
+  const buttons = answerButtonsForGroup(button.dataset.id);
+  const currentIndex = buttons.indexOf(button);
+  let nextIndex = null;
+
+  if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+    nextIndex = (currentIndex + 1) % buttons.length;
+  } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    nextIndex = (currentIndex - 1 + buttons.length) % buttons.length;
+  } else if (event.key === "Home") {
+    nextIndex = 0;
+  } else if (event.key === "End") {
+    nextIndex = buttons.length - 1;
+  } else if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    selectAnswerButton(button);
+    return;
+  }
+
+  if (nextIndex === null) return;
+  event.preventDefault();
+  focusAnswerButton(buttons[nextIndex]);
+}
+
+function focusAnswerButton(button) {
+  const buttons = answerButtonsForGroup(button.dataset.id);
+  buttons.forEach((candidate) => {
+    candidate.tabIndex = candidate === button ? 0 : -1;
+  });
+  button.focus();
+}
+
+function selectAnswerButton(button) {
+  const id = button.dataset.id;
+  state.answers[id] = state.answers[id] || {};
+  state.answers[id].choice = button.dataset.value;
+  answerButtonsForGroup(id).forEach((candidate) => {
+    const isSelected = candidate === button;
+    candidate.classList.toggle("active", isSelected);
+    candidate.setAttribute("aria-checked", String(isSelected));
+    candidate.tabIndex = isSelected ? 0 : -1;
+  });
+  updateCompletion();
+}
+
+function answerButtonsForGroup(id) {
+  return Array.from(document.querySelectorAll(".answer-button")).filter((button) => button.dataset.id === id);
+}
+
 function renderSection(title, items) {
   return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
 }
 
 function renderItem(entry) {
+  const selectedValue = state.answers[entry.id]?.choice;
   return `<article class="item-card">
     <div class="item-title">
       <strong>${escapeHtml(entry.label)}</strong>
       <span>${escapeHtml(entry.why)}</span>
     </div>
-    <div class="button-row">
-      ${entry.buttons.map((button) => `<button class="answer-button" type="button" data-id="${entry.id}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`).join("")}
+    <div class="button-row" role="radiogroup" aria-label="${escapeHtml(entry.label)}">
+      ${entry.buttons.map((button, index) => {
+        const isSelected = selectedValue === button;
+        const isTabStop = selectedValue ? isSelected : index === 0;
+        return `<button class="answer-button${isSelected ? " active" : ""}" type="button" role="radio" aria-checked="${isSelected}" tabindex="${isTabStop ? "0" : "-1"}" data-id="${escapeHtml(entry.id)}" data-value="${escapeHtml(button)}">${escapeHtml(button)}</button>`;
+      }).join("")}
     </div>
-    <input class="free-text" data-id="${entry.id}" placeholder="${escapeHtml(entry.placeholder)}">
+    <input class="free-text" data-id="${escapeHtml(entry.id)}" aria-label="Fritekst for ${escapeHtml(entry.label)}" placeholder="${escapeHtml(entry.placeholder)}" value="${escapeHtml(state.answers[entry.id]?.text || "")}">
   </article>`;
 }
 
