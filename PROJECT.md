@@ -65,7 +65,7 @@ Security notes:
 
 ## PDF export
 
-The journal note can be exported directly from the browser with **Eksporter PDF**. The export uses a printable A4 layout in a temporary print window, sets a date-based filename such as `consultassist-journalnotat-2026-05-01.pdf`, and sends only the visible journal text to the export view.
+The journal note can be exported directly from the browser with **Eksporter PDF**. The export uses a clean A4 layout with margins and wrapped text, sets a date-based filename such as `consultassist-journalnotat-2026-05-01.pdf`, and sends only the visible journal text to the generated PDF.
 
 If a browser blocks the export window or direct generation is unavailable, use **Skriv ut / Lagre som PDF** and choose "Save as PDF" in the browser print dialog. This fallback uses the same print stylesheet and omits prompts, cache metadata, controls, and implementation details.
 
