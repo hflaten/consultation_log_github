@@ -803,10 +803,7 @@ function resetReport() {
 
 function getCompletion() {
   const allItems = state.sheet ? [...state.sheet.questions, ...state.sheet.examinations] : [];
-  const completed = allItems.filter((entry) => {
-    const answer = state.answers[entry.id];
-    return answer && (answer.choice || answer.text);
-  }).length;
+  const completed = allItems.filter((entry) => hasAnswer(entry.id)).length;
 
   return {
     completed,
