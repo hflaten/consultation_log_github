@@ -1,9 +1,14 @@
 const SHEET_VERSION = "v1";
-const PROMPT_VERSION = "v1";
+const PROMPT_VERSION = "v2";
 const SCHEMA_VERSION = "v1";
 const SOURCE_VERSION = "openai:gpt-5.2";
 const REVIEWER_STORAGE_KEY = "consultassist-reviewer-name";
 const FLOW_HINT_DISMISSED_KEY = "consultassist-flow-hint-dismissed";
+const FIRST_EPISODE_LABELS = {
+  yes: "Ja, første episode",
+  no: "Nei, kjent problemstilling",
+  uncertain: "Uavklart"
+};
 const SUPABASE_PROJECT_URL = "https://tnklkqcmzxwnvhnbgsay.supabase.co";
 const SUPABASE_STORAGE_BUCKETS = {
   sheetTemplates: "consultassist-sheet-templates",
@@ -16,6 +21,8 @@ Input:
 - Pasient: alder, kjønn, relevant kontekst
 - Presenterende problemstilling: fri tekst
 - Ønsket arktype: minimumsliste for konsultasjon
+- Førstegangsproblem: om dette er første episode eller kjent problemstilling
+- Tidsramme: antall minutter tilgjengelig i konsultasjonen
 - Språk: norsk bokmål
 - Klinisk ramme: fastlegekontor i Norge
 
@@ -32,6 +39,8 @@ Output som JSON:
 Krav:
 - Bruk korte, praktiske formuleringer egnet under konsultasjon.
 - Hvert spørsmål skal ha relevante svarknapper og et lite fritekstfelt.
+- Ved første episode i 15-minutters fastlegetime skal arket prioritere en minimumsliste over må-gjøre-punkter, ikke uttømmende utredning.
+- Skill tydelig mellom det som må avklares nå og det som kan vurderes senere eller ved indikasjon.
 - Ikke gi en endelig diagnose. Støtt legens vurdering.
 - Marker røde flagg og når akutt vurdering bør vurderes.`;
 
@@ -110,6 +119,8 @@ const els = {
   age: document.querySelector("#ageInput"),
   sex: document.querySelector("#sexInput"),
   sheetType: document.querySelector("#sheetType"),
+  firstEpisode: document.querySelector("#firstEpisodeInput"),
+  consultationWindow: document.querySelector("#consultationWindowInput"),
   caseInput: document.querySelector("#caseInput"),
   prompt: document.querySelector("#promptInput"),
   generate: document.querySelector("#generateSheet"),
@@ -147,7 +158,9 @@ els.example.addEventListener("click", () => {
   els.age.value = "44";
   els.sex.value = "mann";
   els.sheetType.value = "minimumsliste";
-  els.caseInput.value = "Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.";
+  els.firstEpisode.value = "yes";
+  els.consultationWindow.value = "15";
+  els.caseInput.value = "Mann 44 kommer til fastlege pga førstegangs svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging innen en normal fastlegetime.";
   updateFlowHint();
 });
 els.clear.addEventListener("click", clearAnswers);
@@ -165,7 +178,7 @@ els.stickyDismiss.addEventListener("click", () => {
 });
 els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
-[els.age, els.sex, els.sheetType, els.caseInput].forEach((input) => {
+[els.age, els.sex, els.sheetType, els.firstEpisode, els.consultationWindow, els.caseInput].forEach((input) => {
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
 });
@@ -187,6 +200,7 @@ function normalizeTopic(text) {
 function cacheKey() {
   const age = Number.parseInt(els.age.value, 10);
   const ageBand = Number.isFinite(age) ? `${Math.floor(age / 10) * 10}-${Math.floor(age / 10) * 10 + 9}` : "ukjent";
+  const intake = intakeContext();
   return [
     "consultassist-sheet",
     SHEET_VERSION,
@@ -194,6 +208,8 @@ function cacheKey() {
     ageBand,
     els.sex.value,
     els.sheetType.value,
+    intake.firstEpisode,
+    `${intake.consultationWindowMinutes}min`,
     "nb-no",
     "fastlege"
   ].join(":");
@@ -216,11 +232,13 @@ async function generateSheet() {
     els.cacheStatus.textContent = "Lager spesialisert ark med AI";
     try {
       state.sheet = await generateAiSheet(key);
+      applyIntakeContext(state.sheet);
       localStorage.setItem(key, JSON.stringify(state.sheet));
     } catch (error) {
       console.warn("AI generation failed, using local fallback:", error);
       const base = normalizeTopic(els.caseInput.value) === "svimmelhet" ? dizzinessTemplate : genericTemplate;
       state.sheet = structuredClone(base);
+      applyIntakeContext(state.sheet);
       state.sheet.cacheKey = key;
       state.sheet.createdAt = new Date().toISOString();
       state.sheet.source = "local_fallback";
@@ -248,6 +266,9 @@ async function generateAiSheet(key) {
       age: els.age.value,
       sex: els.sex.value,
       sheetType: els.sheetType.value,
+      firstEpisode: intakeContext().firstEpisode,
+      consultationWindowMinutes: intakeContext().consultationWindowMinutes,
+      prioritizeMustDo: intakeContext().prioritizeMustDo,
       presentation: els.caseInput.value,
       prompt: els.prompt.value,
       cacheKey: key,
@@ -271,9 +292,11 @@ function renderSheet() {
   els.sheetSubtitle.textContent = `${sheet.title} · ${sheet.goal}`;
   updateReviewUi();
   els.sheetContainer.className = "";
+  const intake = sheet.intakeContext || intakeContext();
   els.sheetContainer.innerHTML = [
-    renderSection("Spørsmål", sheet.questions),
-    renderSection("Undersøkelser", sheet.examinations)
+    renderIntakeModeNotice(intake),
+    renderSection(intake.prioritizeMustDo ? "Må avklares i timen" : "Spørsmål", sheet.questions),
+    renderSection(intake.prioritizeMustDo ? "Må-gjøre undersøkelser og tester" : "Undersøkelser", sheet.examinations)
   ].join("");
 
   document.querySelectorAll(".answer-button").forEach((button) => {
@@ -399,18 +422,51 @@ function buildDraftReviewMetadata(basis, source) {
   };
 }
 
+function intakeContext() {
+  const consultationWindowMinutes = Number.parseInt(els.consultationWindow.value, 10) || 15;
+  const firstEpisode = els.firstEpisode.value || "yes";
+
+  return {
+    mode: "triage_first_intake",
+    locale: "nb-NO",
+    firstEpisode,
+    firstEpisodeLabel: firstEpisodeLabel(firstEpisode),
+    consultationWindowMinutes,
+    prioritizeMustDo: firstEpisode === "yes" && consultationWindowMinutes === 15
+  };
+}
+
+function firstEpisodeLabel(value) {
+  return FIRST_EPISODE_LABELS[value] || FIRST_EPISODE_LABELS.uncertain;
+}
+
+function applyIntakeContext(sheet) {
+  const intake = intakeContext();
+  sheet.intakeContext = intake;
+
+  if (intake.prioritizeMustDo && !sheet.goal.includes("15-minutters fastlegetime")) {
+    sheet.questions = sheet.questions.slice(0, 6);
+    sheet.examinations = sheet.examinations.slice(0, 3);
+    sheet.goal = `${sheet.goal} Prioriter må-gjøre-punkter innen normal 15-minutters fastlegetime.`;
+  }
+}
+
 function sourceBasisForSheet(sheet) {
   ensureReviewMetadata(sheet, sourceBasis());
   return sheet.review.sourceBasis;
 }
 
 function sourceBasis() {
+  const intake = intakeContext();
   return {
     promptHash: stableHash(els.prompt.value),
     promptVersion: PROMPT_VERSION,
     schemaVersion: SCHEMA_VERSION,
     sourceVersion: SOURCE_VERSION,
-    templateVersion: SHEET_VERSION
+    templateVersion: SHEET_VERSION,
+    firstEpisode: intake.firstEpisode,
+    consultationWindowMinutes: intake.consultationWindowMinutes,
+    prioritizeMustDo: intake.prioritizeMustDo
   };
 }
 
@@ -430,6 +486,13 @@ function stableHash(text) {
 
 function renderSection(title, items) {
   return `<div class="sheet-section"><h3>${escapeHtml(title)}</h3>${items.map(renderItem).join("")}</div>`;
+}
+
+function renderIntakeModeNotice(intake) {
+  return `<div class="mode-notice">
+    <strong>${escapeHtml(intake.firstEpisodeLabel)} · ${escapeHtml(intake.consultationWindowMinutes)} minutter</strong>
+    <span>${intake.prioritizeMustDo ? "Arket prioriterer minimumslisten som bør gjøres i en normal fastlegetime." : "Arket tilpasses valgt tidsramme og problemforløp."}</span>
+  </div>`;
 }
 
 function renderItem(entry) {
@@ -493,6 +556,7 @@ function riskText(risk) {
 }
 
 function buildReport() {
+  const intake = state.sheet.intakeContext || intakeContext();
   const entries = [...state.sheet.questions, ...state.sheet.examinations].map((entry) => {
     const answer = state.answers[entry.id] || {};
     return `- ${entry.label}: ${[answer.choice, answer.text].filter(Boolean).join(". ") || "ikke utfylt"}`;
@@ -502,6 +566,11 @@ function buildReport() {
 
 Problemstilling:
 ${els.caseInput.value.trim()}
+
+Konsultasjonsramme:
+- Førstegangsproblem: ${intake.firstEpisodeLabel}
+- Tidsramme: ${intake.consultationWindowMinutes} minutter
+- Prioritering: ${intake.prioritizeMustDo ? "minimumsliste over må-gjøre-punkter" : "tilpasset valgt arktype og tidsramme"}
 
 Opplysninger og funn:
 ${entries}

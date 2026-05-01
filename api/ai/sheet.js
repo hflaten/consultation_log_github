@@ -59,6 +59,22 @@ function validateInput(input) {
     }
   }
 
+  const firstEpisode = normalizeFirstEpisode(input.firstEpisode);
+  if (!firstEpisode) {
+    const error = new Error("Missing firstEpisode");
+    error.statusCode = 400;
+    error.publicMessage = "Missing firstEpisode";
+    throw error;
+  }
+
+  const consultationWindowMinutes = normalizeConsultationWindow(input.consultationWindowMinutes);
+  if (!consultationWindowMinutes) {
+    const error = new Error("Missing consultationWindowMinutes");
+    error.statusCode = 400;
+    error.publicMessage = "Missing consultationWindowMinutes";
+    throw error;
+  }
+
   if (input.presentation.length > 3000 || input.prompt.length > 5000) {
     const error = new Error("Input too long");
     error.statusCode = 413;
@@ -173,7 +189,9 @@ async function generateSheet(input) {
         "Svar kun med JSON som matcher skjemaet.",
         "Ikke gi endelig diagnose. Verktøyet er beslutningsstøtte for lege.",
         "Ikke inkluder personidentifiserende informasjon i gjenbrukbare arkmaler.",
-        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging."
+        "Bruk norsk bokmål, korte praktiske formuleringer, røde flagg og tydelig oppfølging.",
+        "Når firstEpisode er yes og consultationWindowMinutes er 15, lag en triage-først minimumsliste: prioriter det legen må avklare i en normal fastlegetime fremfor en uttømmende utredning.",
+        "Skill tydelig mellom må-gjøre-punkter, røde flagg og supplerende tiltak som kan vente eller tas ved indikasjon."
       ].join(" "),
       input: [
         {
@@ -187,6 +205,9 @@ async function generateSheet(input) {
                 sheetType: input.sheetType,
                 careSetting: "fastlegekontor i Norge",
                 language: "nb-NO",
+                firstEpisode: normalizeFirstEpisode(input.firstEpisode),
+                consultationWindowMinutes: normalizeConsultationWindow(input.consultationWindowMinutes),
+                prioritizeMustDo: shouldPrioritizeMustDo(input),
                 presentation: input.presentation,
                 prompt: input.prompt,
                 cacheKey: input.cacheKey
@@ -216,7 +237,7 @@ async function generateSheet(input) {
 
   const data = await response.json();
   const parsed = parseResponseJson(data);
-  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis);
+  return normalizeAiSheet(parsed, input.cacheKey, input.sourceBasis, intakeContext(input));
 }
 
 function parseResponseJson(data) {
@@ -234,7 +255,7 @@ function parseResponseJson(data) {
   return JSON.parse(text);
 }
 
-function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
+function normalizeAiSheet(sheet, cacheKey, sourceBasis, intakeContext) {
   return {
     title: sheet.title,
     goal: sheet.goal,
@@ -242,6 +263,7 @@ function normalizeAiSheet(sheet, cacheKey, sourceBasis) {
     questions: sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
     examinations: sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons, entry.placeholder)),
     followUp: sheet.followUp,
+    intakeContext,
     cacheKey,
     createdAt: new Date().toISOString(),
     source: "openai",
@@ -277,6 +299,7 @@ function markSheetReviewed(sheet, input) {
     questions: Array.isArray(sheet.questions) ? sheet.questions.map((entry, index) => item(entry.id || `q${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
     examinations: Array.isArray(sheet.examinations) ? sheet.examinations.map((entry, index) => item(entry.id || `e${index + 1}`, entry.label, entry.why, entry.buttons || [], entry.placeholder || "")) : [],
     followUp: Array.isArray(sheet.followUp) ? sheet.followUp : [],
+    intakeContext: sheet.intakeContext || intakeContext(input),
     cacheKey: input.cacheKey,
     createdAt: sheet.createdAt || reviewedAt,
     source: sheet.source || "clinician_review",
@@ -306,6 +329,39 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
 
   return ["promptHash", "promptVersion", "schemaVersion", "sourceVersion", "templateVersion"]
     .every((key) => sheetBasis[key] === requestedBasis[key]);
+}
+
+function normalizeFirstEpisode(value) {
+  return ["yes", "no", "uncertain"].includes(value) ? value : "";
+}
+
+function normalizeConsultationWindow(value) {
+  const minutes = Number.parseInt(value, 10);
+  return [15, 20, 30].includes(minutes) ? minutes : null;
+}
+
+function shouldPrioritizeMustDo(input) {
+  return normalizeFirstEpisode(input.firstEpisode) === "yes" && normalizeConsultationWindow(input.consultationWindowMinutes) === 15;
+}
+
+function intakeContext(input) {
+  const firstEpisode = normalizeFirstEpisode(input.firstEpisode);
+  const consultationWindowMinutes = normalizeConsultationWindow(input.consultationWindowMinutes);
+
+  return {
+    mode: "triage_first_intake",
+    locale: "nb-NO",
+    firstEpisode,
+    firstEpisodeLabel: firstEpisodeLabel(firstEpisode),
+    consultationWindowMinutes,
+    prioritizeMustDo: firstEpisode === "yes" && consultationWindowMinutes === 15
+  };
+}
+
+function firstEpisodeLabel(value) {
+  if (value === "yes") return "Ja, første episode";
+  if (value === "no") return "Nei, kjent problemstilling";
+  return "Uavklart";
 }
 
 function item(id, label, why, buttons, placeholder) {
