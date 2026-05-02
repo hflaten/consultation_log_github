@@ -294,7 +294,7 @@ input::placeholder {
 
 .sheet-layout {
   display: grid;
-  gap: 18px;
+  gap: 10px;
   grid-template-columns: 1fr;
 }
 
@@ -309,11 +309,10 @@ input::placeholder {
 }
 
 .summary-head {
-  align-items: flex-start;
+  align-items: center;
   display: flex;
   gap: 12px;
   justify-content: space-between;
-  margin-bottom: 10px;
 }
 
 .summary-actions {
@@ -339,21 +338,31 @@ input::placeholder {
 .risk-panel {
   border-radius: 8px;
   line-height: 1.45;
-  padding: 14px;
+  padding: 10px 12px;
 }
 
 .summary-panel {
-  position: sticky;
-  top: 12px;
-  z-index: 5;
+  align-items: center;
+  box-shadow: none;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 0.18fr) minmax(0, 1fr) auto;
+  padding: 12px 14px;
 }
 
 .summary-panel h2 {
-  font-size: 1.2rem;
+  font-size: 1rem;
+  margin-bottom: 0;
 }
 
 .assessment-collapsed {
   padding-bottom: 12px;
+}
+
+.summary-panel .wide-button {
+  margin-top: 0;
+  min-width: 168px;
+  width: auto;
 }
 
 .urgency-kicker {
@@ -865,8 +874,13 @@ input::placeholder {
   }
 
   .summary-head,
-  .flow-controls {
+  .flow-controls,
+  .summary-panel {
     align-items: stretch;
+  }
+
+  .summary-panel {
+    grid-template-columns: 1fr;
   }
 
   .summary-actions,

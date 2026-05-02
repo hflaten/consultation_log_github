@@ -733,7 +733,15 @@ function handleAnswerKeydown(event) {
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(key)) return;
 
   if (state.viewMode === "focus") {
-    if (key === "Enter" || key === "ArrowRight") {
+    if (key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.currentTarget.dataset.neuroKey && focusNextNeuroRow(event.currentTarget)) return;
+      moveActiveItem(1);
+      return;
+    }
+
+    if (key === "ArrowRight") {
       event.preventDefault();
       event.stopPropagation();
       moveActiveItem(1);
@@ -786,6 +794,10 @@ function handleGlobalKeydown(event) {
 
   if (event.key === "Enter" && state.viewMode === "focus") {
     event.preventDefault();
+    const active = activeItem();
+    const scope = active ? activeCardElement(active.id) : null;
+    const focusedButton = scope?.contains(document.activeElement) ? document.activeElement?.closest?.(".answer-button") : null;
+    if (focusedButton?.dataset.neuroKey && focusNextNeuroRow(focusedButton)) return;
     moveActiveItem(1);
     return;
   }
