@@ -252,6 +252,95 @@ p {
   margin-bottom: 12px;
 }
 
+.setup-flow-shell {
+  align-items: stretch;
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(150px, 190px) minmax(0, 1fr);
+}
+
+.setup-progress {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: 1fr;
+  margin-bottom: 0;
+}
+
+.setup-dot {
+  align-items: center;
+  background: #f6f9fa;
+  border-color: var(--line);
+  color: var(--muted);
+  display: inline-flex;
+  font-size: 0.78rem;
+  gap: 6px;
+  justify-content: flex-start;
+  min-height: 34px;
+  padding: 0 8px;
+  text-align: left;
+}
+
+.setup-dot span {
+  align-items: center;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  height: 20px;
+  justify-content: center;
+  min-width: 20px;
+}
+
+.setup-dot.active {
+  background: var(--primary-soft);
+  border-color: var(--primary-soft-strong);
+  color: var(--primary-strong);
+}
+
+.setup-carousel {
+  display: block;
+  min-height: 150px;
+}
+
+.setup-field {
+  animation: question-flow-in 170ms ease-out;
+}
+
+.carousel-mode .setup-field {
+  display: none;
+}
+
+.carousel-mode .setup-field.active {
+  display: grid;
+}
+
+.metadata-native {
+  display: none;
+}
+
+.metadata-options {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metadata-option {
+  align-items: center;
+  background: #f0f4f6;
+  border-color: #dce6ea;
+  color: var(--ink);
+  display: inline-flex;
+  gap: 8px;
+  justify-content: center;
+  min-height: 46px;
+}
+
+.metadata-option.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
 label {
   color: var(--muted);
   display: grid;
@@ -800,6 +889,10 @@ input::placeholder {
   min-height: 260px;
 }
 
+.result-panel {
+  scroll-margin-top: 16px;
+}
+
 .sticky-action-bar {
   align-items: center;
   background: rgba(255, 255, 255, 0.96);
@@ -879,6 +972,15 @@ input::placeholder {
 
   .flow-steps {
     display: grid;
+  }
+
+  .setup-flow-shell,
+  .metadata-options {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-progress {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .status-strip {

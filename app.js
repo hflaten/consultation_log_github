@@ -117,7 +117,9 @@ const state = {
   nearTop: true,
   setupCollapsed: false,
   viewMode: "focus",
-  activeItemIndex: 0
+  activeItemIndex: 0,
+  setupStepIndex: 0,
+  resultAnnounced: false
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
@@ -132,6 +134,7 @@ const els = {
   patientId: document.querySelector("#patientIdInput"),
   caseInput: document.querySelector("#caseInput"),
   setupPanel: document.querySelector("#setupPanel"),
+  setupProgress: document.querySelector("#setupProgress"),
   setupSummary: document.querySelector("#setupSummary"),
   setupSummaryText: document.querySelector("#setupSummaryText"),
   editSetup: document.querySelector("#editSetup"),
@@ -157,6 +160,8 @@ const els = {
   customQuestionType: document.querySelector("#customQuestionType"),
   addCustomQuestion: document.querySelector("#addCustomQuestion"),
   nextPatient: document.querySelector("#nextPatient"),
+  resultPanel: document.querySelector("#resultPanel"),
+  editSheet: document.querySelector("#editSheet"),
   summaryPanel: document.querySelector(".summary-panel"),
   assessmentFreshness: document.querySelector("#assessmentFreshness"),
   showAssessment: document.querySelector("#showAssessment"),
@@ -201,6 +206,7 @@ els.previousItem.addEventListener("click", () => moveActiveItem(-1));
 els.nextItem.addEventListener("click", () => moveActiveItem(1));
 els.addCustomQuestion.addEventListener("click", addCustomQuestion);
 els.nextPatient.addEventListener("click", prepareNextPatient);
+els.editSheet.addEventListener("click", editSheet);
 els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
@@ -217,7 +223,10 @@ els.copy.addEventListener("click", copyReport);
 els.pdf.addEventListener("click", () => window.print());
 [els.age, els.sex, els.sheetType, els.firstEpisode, els.timeBudget, els.patientId, els.caseInput].forEach((input) => {
   input.addEventListener("input", updateFlowHint);
-  input.addEventListener("change", updateFlowHint);
+  input.addEventListener("change", () => {
+    if (input instanceof HTMLSelectElement) updateMetadataOptions(input);
+    updateFlowHint();
+  });
 });
 els.age.addEventListener("input", normalizeAgeInput);
 els.age.addEventListener("blur", validateAgeInput);
@@ -227,6 +236,9 @@ els.age.addEventListener("blur", validateAgeInput);
 window.addEventListener("scroll", updateStickyPosition, { passive: true });
 window.addEventListener("resize", updateStickyPosition);
 document.addEventListener("keydown", handleGlobalKeydown);
+document.addEventListener("keydown", handleSetupGlobalKeydown);
+initializeMetadataOptions();
+updateSetupCarousel();
 updateFlowHint();
 updateStickyPosition();
 focusAgeInput();
@@ -254,6 +266,88 @@ function focusAgeInput() {
   }, 0);
 }
 
+function initializeMetadataOptions() {
+  document.querySelectorAll(".metadata-options").forEach((container) => {
+    const select = document.querySelector(`#${container.dataset.target}`);
+    if (!select) return;
+    container.innerHTML = [...select.options].map((option, index) => `
+      <button class="metadata-option ${option.selected ? "active" : ""}" type="button" data-target="${escapeHtml(select.id)}" data-index="${index}">
+        <span class="shortcut-number">${index + 1}</span>
+        <span>${escapeHtml(option.textContent)}</span>
+      </button>
+    `).join("");
+  });
+
+  document.querySelectorAll(".metadata-option").forEach((button) => {
+    button.addEventListener("click", () => chooseMetadataOption(button));
+  });
+}
+
+function chooseMetadataOption(button) {
+  const select = document.querySelector(`#${button.dataset.target}`);
+  if (!select) return;
+  select.selectedIndex = Number.parseInt(button.dataset.index, 10);
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  updateMetadataOptions(select);
+  moveSetupFocus(select, 1);
+}
+
+function updateMetadataOptions(select) {
+  document.querySelectorAll(`.metadata-option[data-target="${select.id}"]`).forEach((button) => {
+    const isActive = Number.parseInt(button.dataset.index, 10) === select.selectedIndex;
+    button.classList.toggle("active", isActive);
+  });
+}
+
+function updateSetupCarousel() {
+  const fields = setupFields();
+  fields.forEach((field, index) => {
+    const isActive = index === state.setupStepIndex;
+    field.classList.toggle("active", isActive);
+    field.querySelectorAll("input, textarea, button").forEach((control) => {
+      control.tabIndex = isActive ? 0 : -1;
+    });
+  });
+
+  els.setupProgress.innerHTML = SETUP_FLOW.slice(0, -1).map((key, index) => `
+    <button class="setup-dot ${index === state.setupStepIndex ? "active" : ""}" type="button" data-step="${index}" aria-label="Gå til ${setupStepLabel(key)}">
+      <span>${index + 1}</span>${setupStepLabel(key)}
+    </button>
+  `).join("");
+
+  document.querySelectorAll(".setup-dot").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.setupStepIndex = Number.parseInt(button.dataset.step, 10);
+      updateSetupCarousel();
+      focusSetupStep();
+    });
+  });
+}
+
+function setupFields() {
+  return [...document.querySelectorAll(".setup-field")];
+}
+
+function setupStepLabel(key) {
+  return {
+    age: "Alder",
+    sex: "Kjønn",
+    sheetType: "Arktype",
+    firstEpisode: "Episode",
+    timeBudget: "Tid",
+    patientId: "ID",
+    caseInput: "Problem"
+  }[key] || key;
+}
+
+function focusSetupStep() {
+  const key = SETUP_FLOW[state.setupStepIndex];
+  const field = setupFields()[state.setupStepIndex];
+  const focusTarget = field?.querySelector(".metadata-option.active, .metadata-option, input, textarea") || els[key];
+  focusTarget?.focus();
+  if (focusTarget instanceof HTMLInputElement || focusTarget instanceof HTMLTextAreaElement) focusTarget.select?.();
+}
+
 function normalizeAgeInput() {
   const normalized = els.age.value.replace(/[^\d]/g, "").slice(0, 3);
   if (els.age.value !== normalized) els.age.value = normalized;
@@ -272,6 +366,13 @@ function validateAgeInput() {
 }
 
 function handleSetupKeydown(event) {
+  if (event.key === "Tab" && event.currentTarget === els.caseInput && !event.shiftKey) {
+    if (!canGenerateFromSetup()) return;
+    event.preventDefault();
+    generateSheet();
+    return;
+  }
+
   if (event.key === "Enter") {
     if (event.currentTarget === els.caseInput && event.shiftKey) return;
     event.preventDefault();
@@ -297,6 +398,21 @@ function handleSetupKeydown(event) {
   }
 }
 
+function handleSetupGlobalKeydown(event) {
+  if (state.sheet || els.setupPanel.classList.contains("collapsed")) return;
+  if (!/^[1-9]$/.test(event.key)) return;
+  const key = SETUP_FLOW[state.setupStepIndex];
+  const select = key ? els[key] : null;
+  if (!(select instanceof HTMLSelectElement)) return;
+  const optionIndex = Number.parseInt(event.key, 10) - 1;
+  if (optionIndex >= select.options.length) return;
+  event.preventDefault();
+  select.selectedIndex = optionIndex;
+  select.dispatchEvent(new Event("change", { bubbles: true }));
+  updateMetadataOptions(select);
+  moveSetupFocus(select, 1);
+}
+
 function moveSetupFocus(currentElement, direction) {
   if (currentElement === els.age && !validateAgeInput()) {
     els.age.focus();
@@ -305,9 +421,13 @@ function moveSetupFocus(currentElement, direction) {
   const currentKey = Object.entries(els).find(([, element]) => element === currentElement)?.[0];
   const currentIndex = SETUP_FLOW.indexOf(currentKey);
   const nextKey = SETUP_FLOW[Math.min(Math.max(currentIndex + direction, 0), SETUP_FLOW.length - 1)];
-  const nextElement = els[nextKey];
-  nextElement?.focus();
-  if (nextElement instanceof HTMLInputElement || nextElement instanceof HTMLTextAreaElement) nextElement.select?.();
+  state.setupStepIndex = Math.min(Math.max(SETUP_FLOW.indexOf(nextKey), 0), SETUP_FLOW.length - 2);
+  updateSetupCarousel();
+  if (nextKey === "generate") {
+    els.generate.focus();
+    return;
+  }
+  focusSetupStep();
 }
 
 function canGenerateFromSetup() {
@@ -380,6 +500,7 @@ async function generateSheet() {
   state.stickyDismissed = false;
   state.viewMode = "focus";
   state.activeItemIndex = 0;
+  state.resultAnnounced = false;
   renderSheet();
   updateCompletion();
   resetReport();
@@ -431,6 +552,7 @@ async function addCustomQuestion() {
     const entry = await refineCustomQuestion(rawText, targetKey, id);
     state.sheet[targetKey].push(entry);
     markSheetModified();
+    state.resultAnnounced = false;
     state.answers[id] = {};
     state.activeItemIndex = itemIndex(id);
     els.customQuestionInput.value = "";
@@ -444,6 +566,7 @@ async function addCustomQuestion() {
     const entry = fallbackCustomQuestion(rawText, targetKey, id);
     state.sheet[targetKey].push(entry);
     markSheetModified();
+    state.resultAnnounced = false;
     state.answers[id] = {};
     state.activeItemIndex = itemIndex(id);
     els.customQuestionInput.value = "";
@@ -510,6 +633,9 @@ function markSheetModified() {
   if (!state.sheet) return;
   state.sheet.source = "clinician_modified";
   state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "clinician_modified");
+  state.assessment = null;
+  state.assessmentStale = false;
+  resetReport();
 }
 
 function renderSheet() {
@@ -817,6 +943,14 @@ function handleAnswerKeydown(event) {
   const key = event.key;
   if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "Enter", " "].includes(key)) return;
 
+  if ((key === "ArrowDown" || key === "ArrowUp") && event.currentTarget.dataset.neuroKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (key === "ArrowDown") focusNextNeuroRow(event.currentTarget);
+    if (key === "ArrowUp") focusPreviousNeuroRow(event.currentTarget);
+    return;
+  }
+
   if (state.viewMode === "focus") {
     if (key === "Enter") {
       event.preventDefault();
@@ -874,6 +1008,7 @@ function handleGlobalKeydown(event) {
     if (!button) return;
     event.preventDefault();
     selectAnswer(button);
+    button.focus({ preventScroll: true });
     return;
   }
 
@@ -885,6 +1020,17 @@ function handleGlobalKeydown(event) {
     if (focusedButton?.dataset.neuroKey && focusNextNeuroRow(focusedButton)) return;
     moveActiveItem(1);
     return;
+  }
+
+  if ((event.key === "ArrowDown" || event.key === "ArrowUp") && state.viewMode === "focus") {
+    const active = activeItem();
+    const scope = active ? activeCardElement(active.id) : null;
+    const focusedButton = scope?.contains(document.activeElement) ? document.activeElement?.closest?.(".answer-button") : null;
+    if (focusedButton?.dataset.neuroKey) {
+      event.preventDefault();
+      if (event.key === "ArrowDown") focusNextNeuroRow(focusedButton);
+      if (event.key === "ArrowUp") focusPreviousNeuroRow(focusedButton);
+    }
   }
 
   if (event.key === "Escape" && state.viewMode === "focus") {
@@ -918,6 +1064,8 @@ function updateCompletion() {
   }
   const { completed, total, percent } = getCompletion();
   const hasStartedAnswers = completed > 0;
+  const complete = total > 0 && completed === total;
+  if (!complete) state.resultAnnounced = false;
   els.completionStatus.textContent = `${completed} / ${total} svar registrert (${percent}%)`;
   els.assess.hidden = !hasStartedAnswers;
   els.assess.disabled = !hasStartedAnswers;
@@ -936,7 +1084,7 @@ function updateCompletion() {
   updatePostSheetActions();
 }
 
-function assess() {
+function assess(options = {}) {
   if (!state.sheet || els.assess.disabled) return;
   const values = Object.values(state.answers).map((answer) => `${answer.choice || ""} ${answer.text || ""}`.toLowerCase());
   const redFlagHits = values.filter((value) => /ja|avvik|synkope|bryst|pares|dobbeltsyn|tale|hodepine|hørselstap|patologisk/.test(value));
@@ -955,7 +1103,8 @@ function assess() {
   els.pdf.disabled = false;
   updateStickyActionBar();
   updateAssessmentControls();
-  scrollToAssessment();
+  if (options.scroll === false) return;
+  scrollToResults();
 }
 
 function urgencyForRisk(risk, missingCritical) {
@@ -1033,6 +1182,8 @@ function prepareNextPatient() {
   state.setupCollapsed = false;
   state.viewMode = "focus";
   state.activeItemIndex = 0;
+  state.setupStepIndex = 0;
+  state.resultAnnounced = false;
   els.patientId.value = "";
   els.age.value = "";
   els.caseInput.value = "";
@@ -1054,6 +1205,7 @@ function prepareNextPatient() {
   updateCompletion();
   resetReport();
   updateFlowControls();
+  updateSetupCarousel();
   updateFlowHint();
   els.age.focus();
 }
@@ -1218,7 +1370,13 @@ function updatePostSheetActions() {
   const complete = isSheetComplete();
   els.postSheetActions.hidden = !complete;
   els.reviewBanner.hidden = !complete;
-  if (complete) updateReviewUi();
+  if (!complete) return;
+  if (!state.assessment || state.assessmentStale) assess({ scroll: false });
+  updateReviewUi();
+  if (!state.resultAnnounced) {
+    state.resultAnnounced = true;
+    setTimeout(() => scrollToResults(), 120);
+  }
 }
 
 function activeCardElement(id) {
@@ -1237,9 +1395,22 @@ function focusNextNeuroRow(button) {
   const currentRow = button.closest(".button-row");
   const nextRow = rows[rows.indexOf(currentRow) + 1];
   if (!nextRow) return false;
-  const nextButton = nextRow.querySelector(".answer-button");
+  const preferredOption = button.dataset.optionIndex;
+  const nextButton = nextRow.querySelector(`.answer-button[data-option-index="${preferredOption}"]`) || nextRow.querySelector(".answer-button");
   if (!nextButton) return false;
   setTimeout(() => nextButton.focus(), 80);
+  return true;
+}
+
+function focusPreviousNeuroRow(button) {
+  const rows = [...button.closest(".neuro-grid")?.querySelectorAll(".button-row") || []];
+  const currentRow = button.closest(".button-row");
+  const previousRow = rows[rows.indexOf(currentRow) - 1];
+  if (!previousRow) return false;
+  const preferredOption = button.dataset.optionIndex;
+  const previousButton = previousRow.querySelector(`.answer-button[data-option-index="${preferredOption}"]`) || previousRow.querySelector(".answer-button");
+  if (!previousButton) return false;
+  setTimeout(() => previousButton.focus(), 80);
   return true;
 }
 
@@ -1260,7 +1431,7 @@ function updateStickyPosition() {
 
 function updateStickyActionBar() {
   const { completed } = getCompletion();
-  const shouldShow = state.sheet && completed > 0 && !state.nearTop && !state.stickyDismissed;
+  const shouldShow = state.sheet && completed > 0 && !isSheetComplete() && !state.nearTop && !state.stickyDismissed;
 
   els.stickyBar.classList.toggle("visible", shouldShow);
   els.stickyBar.setAttribute("aria-hidden", shouldShow ? "false" : "true");
@@ -1279,8 +1450,21 @@ function updateFlowHint() {
 }
 
 function scrollToAssessment() {
-  els.summaryPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  els.assess.focus({ preventScroll: true });
+  scrollToResults();
+}
+
+function scrollToResults() {
+  els.resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
+  els.resultPanel.focus({ preventScroll: true });
+}
+
+function editSheet() {
+  setViewMode("all");
+  els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+  setTimeout(() => {
+    const firstUnanswered = document.querySelector(".item-card.unanswered .answer-button, .item-card .answer-button");
+    firstUnanswered?.focus({ preventScroll: true });
+  }, 120);
 }
 
 function patientContextText() {
