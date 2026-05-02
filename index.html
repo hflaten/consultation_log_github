@@ -45,11 +45,11 @@
 
           <div class="form-grid">
             <label>
-              Alder
-              <input id="ageInput" inputmode="numeric" value="44" aria-label="Alder">
+              <span class="field-label-row">Alder <span class="key-hints"><kbd>0-9</kbd><span>skriv</span><kbd>Enter</kbd><span>neste</span></span></span>
+              <input id="ageInput" inputmode="numeric" min="0" max="110" aria-label="Alder" placeholder="44" autofocus>
             </label>
             <label>
-              Kjønn
+              <span class="field-label-row">Kjønn <span class="key-hints"><kbd>1</kbd><span>Mann</span><kbd>2</kbd><span>Kvinne</span><kbd>3</kbd><span>Annet</span></span></span>
               <select id="sexInput" aria-label="Kjønn">
                 <option value="mann">Mann</option>
                 <option value="kvinne">Kvinne</option>
@@ -57,7 +57,7 @@
               </select>
             </label>
             <label>
-              Arktype
+              <span class="field-label-row">Arktype <span class="key-hints"><kbd>1</kbd><span>Min</span><kbd>2</kbd><span>Akutt</span><kbd>3</kbd><span>Oppf.</span></span></span>
               <select id="sheetType" aria-label="Arktype">
                 <option value="minimumsliste">Minimumsliste</option>
                 <option value="akuttvurdering">Akuttvurdering</option>
@@ -65,7 +65,7 @@
               </select>
             </label>
             <label>
-              Første episode
+              <span class="field-label-row">Første episode <span class="key-hints"><kbd>1</kbd><span>Ja</span><kbd>2</kbd><span>Nei</span><kbd>3</kbd><span>Uklart</span></span></span>
               <select id="firstEpisodeInput" aria-label="Første episode">
                 <option value="ja">Ja, første gang</option>
                 <option value="nei">Nei, kjent/tilbakevendende</option>
@@ -73,7 +73,7 @@
               </select>
             </label>
             <label>
-              Konsultasjon
+              <span class="field-label-row">Konsultasjon <span class="key-hints"><kbd>1</kbd><span>15</span><kbd>2</kbd><span>20</span><kbd>3</kbd><span>30</span></span></span>
               <select id="timeBudgetInput" aria-label="Konsultasjonslengde">
                 <option value="15">15 min triage</option>
                 <option value="20">20 min</option>
@@ -81,18 +81,18 @@
               </select>
             </label>
             <label>
-              Pasient-ID / initialer
+              <span class="field-label-row">Pasient-ID / initialer <span class="key-hints optional-hint"><kbd>Enter</kbd><span>neste</span></span></span>
               <input id="patientIdInput" aria-label="Pasient-ID eller initialer" placeholder="Valgfritt">
             </label>
           </div>
 
           <label class="full-label">
-            Presenterende problemstilling
+            <span class="field-label-row">Presenterende problemstilling <span class="key-hints"><kbd>Enter</kbd><span>lag ark</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>ny linje</span></span></span>
             <textarea id="caseInput" rows="4" placeholder="F.eks. svimmelhet siden i går, vondt kne etter fall, hoste i tre uker"></textarea>
           </label>
 
           <div class="actions">
-            <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
+            <button id="generateSheet" type="button">Lag / hent konsultasjonsark <span class="button-key"><kbd>Enter</kbd></span></button>
             <button id="clearSession" class="secondary-button" type="button">Neste pasient</button>
           </div>
         </section>

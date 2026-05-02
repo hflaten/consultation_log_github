@@ -121,6 +121,7 @@ const state = {
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
+const SETUP_FLOW = ["age", "sex", "sheetType", "firstEpisode", "timeBudget", "patientId", "caseInput", "generate"];
 
 const els = {
   age: document.querySelector("#ageInput"),
@@ -218,11 +219,17 @@ els.pdf.addEventListener("click", () => window.print());
   input.addEventListener("input", updateFlowHint);
   input.addEventListener("change", updateFlowHint);
 });
+els.age.addEventListener("input", normalizeAgeInput);
+els.age.addEventListener("blur", validateAgeInput);
+[els.age, els.sex, els.sheetType, els.firstEpisode, els.timeBudget, els.patientId, els.caseInput].forEach((input) => {
+  input.addEventListener("keydown", handleSetupKeydown);
+});
 window.addEventListener("scroll", updateStickyPosition, { passive: true });
 window.addEventListener("resize", updateStickyPosition);
 document.addEventListener("keydown", handleGlobalKeydown);
 updateFlowHint();
 updateStickyPosition();
+focusAgeInput();
 
 function item(id, label, why, buttons, placeholder, section = "Anamnese") {
   return { id, label, why, buttons, placeholder, section };
@@ -237,6 +244,83 @@ function normalizeTopic(text) {
 function sentenceCase(value) {
   const trimmed = String(value).replace(/\s+/g, " ").trim();
   return trimmed ? `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}` : "Ekstra punkt";
+}
+
+function focusAgeInput() {
+  setTimeout(() => {
+    if (state.sheet || document.activeElement !== document.body) return;
+    els.age.focus();
+    els.age.select();
+  }, 0);
+}
+
+function normalizeAgeInput() {
+  const normalized = els.age.value.replace(/[^\d]/g, "").slice(0, 3);
+  if (els.age.value !== normalized) els.age.value = normalized;
+  updateFlowHint();
+}
+
+function validateAgeInput() {
+  if (!els.age.value) return false;
+  const age = Number.parseInt(els.age.value, 10);
+  if (!Number.isFinite(age) || age < 0 || age > 110) {
+    els.age.value = "";
+    els.cacheStatus.textContent = "Alder må være mellom 0 og 110";
+    return false;
+  }
+  return true;
+}
+
+function handleSetupKeydown(event) {
+  if (event.key === "Enter") {
+    if (event.currentTarget === els.caseInput && event.shiftKey) return;
+    event.preventDefault();
+    if (event.currentTarget === els.caseInput) {
+      if (canGenerateFromSetup()) {
+        els.generate.focus();
+        generateSheet();
+      }
+      return;
+    }
+    moveSetupFocus(event.currentTarget, 1);
+    return;
+  }
+
+  if (/^[1-9]$/.test(event.key) && event.currentTarget instanceof HTMLSelectElement) {
+    const optionIndex = Number.parseInt(event.key, 10) - 1;
+    if (optionIndex < event.currentTarget.options.length) {
+      event.preventDefault();
+      event.currentTarget.selectedIndex = optionIndex;
+      event.currentTarget.dispatchEvent(new Event("change", { bubbles: true }));
+      moveSetupFocus(event.currentTarget, 1);
+    }
+  }
+}
+
+function moveSetupFocus(currentElement, direction) {
+  if (currentElement === els.age && !validateAgeInput()) {
+    els.age.focus();
+    return;
+  }
+  const currentKey = Object.entries(els).find(([, element]) => element === currentElement)?.[0];
+  const currentIndex = SETUP_FLOW.indexOf(currentKey);
+  const nextKey = SETUP_FLOW[Math.min(Math.max(currentIndex + direction, 0), SETUP_FLOW.length - 1)];
+  const nextElement = els[nextKey];
+  nextElement?.focus();
+  if (nextElement instanceof HTMLInputElement || nextElement instanceof HTMLTextAreaElement) nextElement.select?.();
+}
+
+function canGenerateFromSetup() {
+  if (!validateAgeInput()) {
+    els.age.focus();
+    return false;
+  }
+  if (!els.caseInput.value.trim()) {
+    els.caseInput.focus();
+    els.cacheStatus.textContent = "Skriv kort problemstilling før arket hentes";
+    return false;
+  }
+  return true;
 }
 
 function cacheKey() {
@@ -257,6 +341,7 @@ function cacheKey() {
 }
 
 async function generateSheet() {
+  if (!canGenerateFromSetup()) return;
   const key = cacheKey();
   const cached = localStorage.getItem(key);
   if (cached) {
@@ -949,6 +1034,7 @@ function prepareNextPatient() {
   state.viewMode = "focus";
   state.activeItemIndex = 0;
   els.patientId.value = "";
+  els.age.value = "";
   els.caseInput.value = "";
   els.setupPanel.classList.remove("collapsed");
   els.setupSummary.hidden = true;
@@ -969,7 +1055,7 @@ function prepareNextPatient() {
   resetReport();
   updateFlowControls();
   updateFlowHint();
-  els.caseInput.focus();
+  els.age.focus();
 }
 
 function resetReport() {
