@@ -276,6 +276,11 @@ textarea {
   resize: vertical;
 }
 
+textarea::placeholder,
+input::placeholder {
+  color: #9aa7af;
+}
+
 .full-label {
   margin-bottom: 14px;
 }
@@ -530,6 +535,10 @@ textarea {
   margin-top: 18px;
 }
 
+.focus-mode .sheet-section + .sheet-section {
+  margin-top: 0;
+}
+
 .sheet-title {
   font-size: 1.28rem;
   line-height: 1.25;
@@ -563,6 +572,10 @@ textarea {
   border-left: 4px solid transparent;
   padding: 14px;
   transition: background 120ms ease, border-color 120ms ease;
+}
+
+.focus-mode .item-card {
+  animation: question-flow-in 190ms ease-out;
 }
 
 .item-card.answered {
@@ -703,6 +716,42 @@ textarea {
   margin-bottom: 0;
 }
 
+.post-sheet-actions {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 18px;
+}
+
+.post-sheet-actions[hidden] {
+  display: none;
+}
+
+.post-sheet-actions h3 {
+  font-size: 1rem;
+  margin: 0 0 4px;
+}
+
+.add-question-form {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(140px, 0.22fr) auto;
+}
+
+@keyframes question-flow-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .report-panel textarea {
   min-height: 260px;
 }
@@ -801,7 +850,8 @@ textarea {
   }
 
   .form-grid,
-  .sheet-layout {
+  .sheet-layout,
+  .add-question-form {
     grid-template-columns: 1fr;
   }
 

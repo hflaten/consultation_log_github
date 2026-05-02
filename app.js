@@ -116,7 +116,7 @@ const state = {
   stickyDismissed: false,
   nearTop: true,
   setupCollapsed: false,
-  viewMode: "all",
+  viewMode: "focus",
   activeItemIndex: 0
 };
 
@@ -151,6 +151,11 @@ const els = {
   reviewMeta: document.querySelector("#reviewMeta"),
   reviewTemplate: document.querySelector("#reviewTemplate"),
   sheetContainer: document.querySelector("#sheetContainer"),
+  postSheetActions: document.querySelector("#postSheetActions"),
+  customQuestionInput: document.querySelector("#customQuestionInput"),
+  customQuestionType: document.querySelector("#customQuestionType"),
+  addCustomQuestion: document.querySelector("#addCustomQuestion"),
+  nextPatient: document.querySelector("#nextPatient"),
   summaryPanel: document.querySelector(".summary-panel"),
   assessmentFreshness: document.querySelector("#assessmentFreshness"),
   showAssessment: document.querySelector("#showAssessment"),
@@ -182,10 +187,10 @@ els.example.addEventListener("click", () => {
   els.firstEpisode.value = "ja";
   els.timeBudget.value = "15";
   els.patientId.value = "";
-  els.caseInput.value = "Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.";
+  els.caseInput.value = "Svimmelhet siden i går, første episode. Ønsker minimumsliste for 15 min konsultasjon.";
   updateFlowHint();
 });
-els.clear.addEventListener("click", clearAnswers);
+els.clear.addEventListener("click", prepareNextPatient);
 els.editSetup.addEventListener("click", () => setSetupCollapsed(false));
 els.showAssessment.addEventListener("click", () => setAssessmentHidden(false));
 els.hideAssessment.addEventListener("click", () => setAssessmentHidden(true));
@@ -193,6 +198,8 @@ els.showAllMode.addEventListener("click", () => setViewMode("all"));
 els.focusMode.addEventListener("click", () => setViewMode("focus"));
 els.previousItem.addEventListener("click", () => moveActiveItem(-1));
 els.nextItem.addEventListener("click", () => moveActiveItem(1));
+els.addCustomQuestion.addEventListener("click", addCustomQuestion);
+els.nextPatient.addEventListener("click", prepareNextPatient);
 els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
@@ -225,6 +232,11 @@ function normalizeTopic(text) {
   const lower = text.toLowerCase();
   if (lower.includes("svimmel") || lower.includes("vertigo")) return "svimmelhet";
   return lower.split(/[.,\n]/)[0].replace(/[^a-zæøå0-9 ]/gi, "").trim().slice(0, 60) || "generelt";
+}
+
+function sentenceCase(value) {
+  const trimmed = String(value).replace(/\s+/g, " ").trim();
+  return trimmed ? `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}` : "Ekstra punkt";
 }
 
 function cacheKey() {
@@ -278,7 +290,11 @@ async function generateSheet() {
   }
   state.answers = {};
   state.assessment = null;
+  state.assessmentHidden = false;
+  state.assessmentStale = false;
   state.stickyDismissed = false;
+  state.viewMode = "focus";
+  state.activeItemIndex = 0;
   renderSheet();
   updateCompletion();
   resetReport();
@@ -313,6 +329,104 @@ async function generateAiSheet(key) {
   return data.sheet;
 }
 
+async function addCustomQuestion() {
+  if (!state.sheet) return;
+  const rawText = els.customQuestionInput.value.trim();
+  if (!rawText) {
+    els.customQuestionInput.focus();
+    return;
+  }
+
+  const targetKey = els.customQuestionType.value === "examinations" ? "examinations" : "questions";
+  const id = `custom-${Date.now().toString(36)}`;
+  els.addCustomQuestion.disabled = true;
+  els.cacheStatus.textContent = "Forbedrer ekstra punkt med AI";
+
+  try {
+    const entry = await refineCustomQuestion(rawText, targetKey, id);
+    state.sheet[targetKey].push(entry);
+    markSheetModified();
+    state.answers[id] = {};
+    state.activeItemIndex = itemIndex(id);
+    els.customQuestionInput.value = "";
+    localStorage.setItem(state.sheet.cacheKey || cacheKey(), JSON.stringify(state.sheet));
+    els.cacheStatus.textContent = "Ekstra punkt lagt til";
+    renderSheet();
+    updateCompletion();
+    focusActiveItemControl();
+  } catch (error) {
+    console.warn("Custom question refinement failed:", error);
+    const entry = fallbackCustomQuestion(rawText, targetKey, id);
+    state.sheet[targetKey].push(entry);
+    markSheetModified();
+    state.answers[id] = {};
+    state.activeItemIndex = itemIndex(id);
+    els.customQuestionInput.value = "";
+    localStorage.setItem(state.sheet.cacheKey || cacheKey(), JSON.stringify(state.sheet));
+    els.cacheStatus.textContent = "Ekstra punkt lagt til med lokal opprydding";
+    renderSheet();
+    updateCompletion();
+    focusActiveItemControl();
+  } finally {
+    els.addCustomQuestion.disabled = false;
+  }
+}
+
+async function refineCustomQuestion(rawText, targetKey, id) {
+  const response = await fetch("/api/ai/sheet", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "refine_item",
+      rawText,
+      itemType: targetKey,
+      id,
+      sheetTitle: state.sheet.title,
+      presentation: els.caseInput.value
+    })
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Custom item request failed ${response.status}: ${text.slice(0, 240)}`);
+  }
+
+  const data = await response.json();
+  if (!data.item) throw new Error("Custom item response did not contain an item");
+  return normalizeCustomEntry(data.item, rawText, targetKey, id);
+}
+
+function normalizeCustomEntry(entry, rawText, targetKey, id) {
+  const fallback = fallbackCustomQuestion(rawText, targetKey, id);
+  return {
+    id,
+    section: entry.section || fallback.section,
+    label: entry.label || fallback.label,
+    why: entry.why || fallback.why,
+    buttons: Array.isArray(entry.buttons) && entry.buttons.length >= 2 ? entry.buttons.slice(0, 5) : fallback.buttons,
+    placeholder: entry.placeholder || fallback.placeholder
+  };
+}
+
+function fallbackCustomQuestion(rawText, targetKey, id) {
+  const isExam = targetKey === "examinations";
+  const label = sentenceCase(rawText).slice(0, 120);
+  return item(
+    id,
+    label,
+    isExam ? "Lagt til av kliniker som målrettet undersøkelsespunkt." : "Lagt til av kliniker som relevant avklaringspunkt.",
+    isExam ? ["Normal", "Avvik", "Ikke utført"] : ["Ja", "Nei", "Usikkert"],
+    isExam ? "Beskriv funn kort." : "Utfyllende detaljer ved behov.",
+    isExam ? "Undersøkelser" : "Tillegg"
+  );
+}
+
+function markSheetModified() {
+  if (!state.sheet) return;
+  state.sheet.source = "clinician_modified";
+  state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "clinician_modified");
+}
+
 function renderSheet() {
   const sheet = state.sheet;
   clampActiveItemIndex();
@@ -321,7 +435,7 @@ function renderSheet() {
   els.patientContextText.textContent = patientContextText();
   els.generatedAtText.textContent = `Generert ${formatDateTime(sheet.createdAt || new Date().toISOString())}`;
   updateReviewUi();
-  els.sheetContainer.className = "";
+  els.sheetContainer.className = state.viewMode === "focus" ? "focus-mode" : "";
   els.sheetContainer.innerHTML = [
     `<h3 class="sheet-title">${escapeHtml(sheet.title)}</h3>`,
     renderGroupedSections("Spørsmål", sheet.questions),
@@ -387,11 +501,16 @@ function renderSheet() {
 
   setSetupCollapsed(true);
   updateFlowControls();
+  updatePostSheetActions();
   setTimeout(() => els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
 }
 
 async function approveTemplate() {
   if (!state.sheet) return;
+  if (!isSheetComplete()) {
+    els.cacheStatus.textContent = "Gå gjennom hele arket før malen godkjennes";
+    return;
+  }
 
   const reviewer = window.prompt("Navn/initialer på kliniker som har gjennomgått arket:", localStorage.getItem(REVIEWER_STORAGE_KEY) || "");
   if (!reviewer || reviewer.trim().length === 0) return;
@@ -423,6 +542,7 @@ async function approveTemplate() {
     localStorage.setItem(state.sheet.cacheKey, JSON.stringify(state.sheet));
     els.cacheStatus.textContent = "Klinisk godkjent mal lagret";
     updateReviewUi();
+    updatePostSheetActions();
   } catch (error) {
     console.warn("Template review failed:", error);
     els.cacheStatus.textContent = "Kunne ikke lagre godkjenning";
@@ -447,8 +567,9 @@ function updateReviewUi() {
   els.reviewBanner.hidden = false;
   els.reviewBanner.className = `review-banner ${isReviewed ? "reviewed" : "draft"}`;
   els.reviewLabel.textContent = isReviewed ? "Kliniker-godkjent mal" : "AI-utkast - ikke klinisk godkjent";
-  els.reviewMeta.textContent = reviewSummary(review);
+  els.reviewMeta.textContent = isReviewed ? reviewSummary(review) : `${reviewSummary(review)} Gå gjennom hele arket og legg til eventuelle manglende punkter før godkjenning.`;
   els.reviewTemplate.hidden = isReviewed;
+  els.reviewTemplate.disabled = !isSheetComplete();
 }
 
 function cacheStatusForSheet(sheet, sourceLabel) {
@@ -660,10 +781,6 @@ function handleGlobalKeydown(event) {
     if (!button) return;
     event.preventDefault();
     selectAnswer(button);
-    if (state.viewMode === "focus") {
-      if (button.dataset.neuroKey && focusNextNeuroRow(button)) return;
-      setTimeout(() => moveActiveItem(1), 120);
-    }
     return;
   }
 
@@ -719,6 +836,7 @@ function updateCompletion() {
   updateStickyActionBar();
   updateAssessmentControls();
   updateFlowControls();
+  updatePostSheetActions();
 }
 
 function assess() {
@@ -808,6 +926,40 @@ function clearAnswers() {
   resetReport();
 }
 
+function prepareNextPatient() {
+  state.sheet = null;
+  state.answers = {};
+  state.assessment = null;
+  state.assessmentHidden = false;
+  state.assessmentStale = false;
+  state.stickyDismissed = false;
+  state.setupCollapsed = false;
+  state.viewMode = "focus";
+  state.activeItemIndex = 0;
+  els.patientId.value = "";
+  els.caseInput.value = "";
+  els.setupPanel.classList.remove("collapsed");
+  els.setupSummary.hidden = true;
+  els.patientContextBar.hidden = true;
+  els.reviewBanner.hidden = true;
+  els.postSheetActions.hidden = true;
+  els.sheetSubtitle.textContent = "Ingen ark generert ennå.";
+  els.sheetContainer.className = "empty-state";
+  els.sheetContainer.innerHTML = `<div class="empty-state-content">
+    <span class="empty-state-arrow" aria-hidden="true">&uarr;</span>
+    <strong>Start med å lage et konsultasjonsark.</strong>
+    <span>Bruk knappen "Lag / hent konsultasjonsark" over, og fyll deretter ut svarene her.</span>
+  </div>`;
+  els.cacheStatus.textContent = "Klar for neste pasient";
+  els.reviewStatus.textContent = "Ikke vurdert";
+  els.reviewStatus.className = "";
+  updateCompletion();
+  resetReport();
+  updateFlowControls();
+  updateFlowHint();
+  els.caseInput.focus();
+}
+
 function resetReport() {
   els.risk.className = "risk-panel muted";
   els.risk.textContent = state.sheet ? "Fyll ut noen svar i arket for å lage vurdering." : "Lag et konsultasjonsark først, fyll det ut, og hent deretter vurdering.";
@@ -827,6 +979,12 @@ function getCompletion() {
     total: allItems.length,
     percent: allItems.length ? Math.round((completed / allItems.length) * 100) : 0
   };
+}
+
+function isSheetComplete() {
+  if (!state.sheet) return false;
+  const { completed, total } = getCompletion();
+  return total > 0 && completed === total;
 }
 
 function hasAnswer(id) {
@@ -952,6 +1110,17 @@ function updateFlowControls() {
   els.activeItemStatus.textContent = total ? `${state.activeItemIndex + 1} / ${total}` : "0 / 0";
   els.previousItem.disabled = state.activeItemIndex <= 0;
   els.nextItem.disabled = total === 0 || state.activeItemIndex >= total - 1;
+}
+
+function updatePostSheetActions() {
+  if (!state.sheet) {
+    els.postSheetActions.hidden = true;
+    return;
+  }
+  const complete = isSheetComplete();
+  els.postSheetActions.hidden = !complete;
+  els.reviewBanner.hidden = !complete;
+  if (complete) updateReviewUi();
 }
 
 function activeCardElement(id) {

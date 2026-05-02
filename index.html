@@ -88,12 +88,12 @@
 
           <label class="full-label">
             Presenterende problemstilling
-            <textarea id="caseInput" rows="4">Mann 44 kommer til fastlege pga svimmelhet. Sett opp en minimumsliste over spørsmål og undersøkelser jeg kan fylle svaret rett inn i. Målet er å avklare alvorlighetsgrad av tilstanden samt planlegge videre utredning/oppfølging.</textarea>
+            <textarea id="caseInput" rows="4" placeholder="F.eks. svimmelhet siden i går, vondt kne etter fall, hoste i tre uker"></textarea>
           </label>
 
           <div class="actions">
             <button id="generateSheet" type="button">Lag / hent konsultasjonsark</button>
-            <button id="clearSession" class="secondary-button" type="button">Nullstill svar</button>
+            <button id="clearSession" class="secondary-button" type="button">Neste pasient</button>
           </div>
         </section>
 
@@ -126,8 +126,8 @@
               </div>
               <div id="flowControls" class="flow-controls" hidden>
                 <div class="segmented-control" aria-label="Visningsmodus">
-                  <button id="showAllMode" class="secondary-button active" type="button">Vis alle</button>
-                  <button id="focusMode" class="secondary-button" type="button">Ett og ett</button>
+                  <button id="showAllMode" class="secondary-button" type="button">Vis alle</button>
+                  <button id="focusMode" class="secondary-button active" type="button">Ett og ett</button>
                 </div>
                 <div class="step-controls">
                   <button id="previousItem" class="secondary-button compact-button" type="button">Forrige</button>
@@ -140,19 +140,40 @@
               <span id="patientContextText">Ingen pasientkontekst</span>
               <span id="generatedAtText">Ikke generert</span>
             </div>
-            <div id="reviewBanner" class="review-banner draft" hidden>
-              <div>
-                <strong id="reviewLabel">AI-utkast - ikke klinisk godkjent</strong>
-                <p id="reviewMeta">Første genererte mal kan brukes som utkast, men må godkjennes før langtidsbruk.</p>
-              </div>
-              <button id="reviewTemplate" class="secondary-button" type="button">Merk som kliniker-godkjent</button>
-            </div>
             <div id="sheetContainer" class="empty-state">
               <div class="empty-state-content">
                 <span class="empty-state-arrow" aria-hidden="true">&uarr;</span>
                 <strong>Start med å lage et konsultasjonsark.</strong>
                 <span>Bruk knappen "Lag / hent konsultasjonsark" over, og fyll deretter ut svarene her.</span>
               </div>
+            </div>
+            <div id="postSheetActions" class="post-sheet-actions" hidden>
+              <div>
+                <h3>Ferdig gjennomgang</h3>
+                <p>Tilpass malen før den lagres som kliniker-godkjent.</p>
+              </div>
+              <div class="add-question-form">
+                <label>
+                  Ekstra punkt
+                  <input id="customQuestionInput" placeholder="F.eks. Tidligere migrene eller aura?">
+                </label>
+                <label>
+                  Type
+                  <select id="customQuestionType" aria-label="Type ekstra punkt">
+                    <option value="questions">Spørsmål</option>
+                    <option value="examinations">Undersøkelse</option>
+                  </select>
+                </label>
+                <button id="addCustomQuestion" class="secondary-button" type="button">Legg til</button>
+              </div>
+              <div id="reviewBanner" class="review-banner draft" hidden>
+                <div>
+                  <strong id="reviewLabel">AI-utkast - ikke klinisk godkjent</strong>
+                  <p id="reviewMeta">Gå gjennom hele arket før malen godkjennes for gjenbruk.</p>
+                </div>
+                <button id="reviewTemplate" class="secondary-button" type="button">Merk som kliniker-godkjent</button>
+              </div>
+              <button id="nextPatient" class="wide-button secondary-button" type="button">Neste pasient</button>
             </div>
           </section>
         </section>

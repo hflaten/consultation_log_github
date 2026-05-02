@@ -1,5 +1,5 @@
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5-mini";
-const OPENAI_REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT || "none";
+const OPENAI_REASONING_EFFORT = process.env.OPENAI_REASONING_EFFORT || "minimal";
 const parsedMaxOutputTokens = Number.parseInt(process.env.OPENAI_MAX_OUTPUT_TOKENS || "2200", 10);
 const OPENAI_MAX_OUTPUT_TOKENS = Number.isFinite(parsedMaxOutputTokens) ? parsedMaxOutputTokens : 2200;
 const SHEET_BUCKET = "consultassist-sheet-templates";
@@ -17,6 +17,12 @@ module.exports = async function handler(req, res) {
   try {
     const input = normalizeRequestBody(req.body);
     const action = input.action || "generate";
+
+    if (action === "refine_item") {
+      validateRefineInput(input);
+      const refined = await refineCustomItem(input);
+      return send(res, 200, { item: refined });
+    }
 
     if (action === "review") {
       validateReviewInput(input);
@@ -70,6 +76,29 @@ function validateInput(input) {
   }
 }
 
+function validateRefineInput(input) {
+  if (typeof input.rawText !== "string" || input.rawText.trim().length === 0) {
+    const error = new Error("Missing rawText");
+    error.statusCode = 400;
+    error.publicMessage = "Missing custom question";
+    throw error;
+  }
+
+  if (!["questions", "examinations"].includes(input.itemType)) {
+    const error = new Error("Invalid itemType");
+    error.statusCode = 400;
+    error.publicMessage = "Invalid custom question type";
+    throw error;
+  }
+
+  if (input.rawText.length > 800) {
+    const error = new Error("Custom question too long");
+    error.statusCode = 413;
+    error.publicMessage = "Custom question is too long";
+    throw error;
+  }
+}
+
 function validateReviewInput(input) {
   if (typeof input.cacheKey !== "string" || input.cacheKey.trim().length === 0) {
     const error = new Error("Missing cacheKey");
@@ -91,6 +120,80 @@ function validateReviewInput(input) {
     error.publicMessage = "Reviewer is required";
     throw error;
   }
+}
+
+async function refineCustomItem(input) {
+  if (!process.env.OPENAI_API_KEY) {
+    return fallbackCustomItem(input);
+  }
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      max_output_tokens: 700,
+      reasoning: {
+        effort: OPENAI_REASONING_EFFORT
+      },
+      instructions: [
+        "Du omskriver rå innspill fra fastlege til ett produksjonsklart punkt i et konsultasjonsark.",
+        "Svar kun med JSON som matcher skjemaet.",
+        "Ikke legg til diagnose. Gjør formuleringen kort, klinisk og egnet under konsultasjon.",
+        "Svarknapper skal være praktiske og journalvennlige."
+      ].join(" "),
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                rawText: input.rawText,
+                itemType: input.itemType,
+                existingTitle: input.sheetTitle || "",
+                presentation: input.presentation || "",
+                language: "nb-NO"
+              })
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "consultassist_custom_item",
+          strict: true,
+          schema: customItemJsonSchema()
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    console.warn("OpenAI refine item failed", response.status, await response.text());
+    return fallbackCustomItem(input);
+  }
+
+  const data = await response.json();
+  const parsed = parseResponseJson(data);
+  return item(input.id, parsed.label, parsed.why, parsed.buttons, parsed.placeholder, parsed.section);
+}
+
+function fallbackCustomItem(input) {
+  const label = sentenceCase(input.rawText.trim()).slice(0, 120);
+  const isExam = input.itemType === "examinations";
+  return item(
+    input.id,
+    label,
+    isExam ? "Lagt til av kliniker som målrettet undersøkelsespunkt." : "Lagt til av kliniker som relevant avklaringspunkt.",
+    isExam ? ["Normal", "Avvik", "Ikke utført"] : ["Ja", "Nei", "Usikkert"],
+    isExam ? "Beskriv funn kort." : "Utfyllende detaljer ved behov.",
+    isExam ? "Undersøkelser" : "Tillegg"
+  );
 }
 
 async function readCachedSheet(cacheKey, sourceBasis) {
@@ -334,6 +437,31 @@ function isCurrentSourceBasis(sheetBasis, requestedBasis) {
 
 function item(id, label, why, buttons, placeholder, section) {
   return { id, section, label, why, buttons, placeholder };
+}
+
+function sentenceCase(value) {
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  return trimmed ? `${trimmed.charAt(0).toUpperCase()}${trimmed.slice(1)}` : "Ekstra punkt";
+}
+
+function customItemJsonSchema() {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["section", "label", "why", "buttons", "placeholder"],
+    properties: {
+      section: { type: "string" },
+      label: { type: "string" },
+      why: { type: "string" },
+      buttons: {
+        type: "array",
+        minItems: 2,
+        maxItems: 5,
+        items: { type: "string" }
+      },
+      placeholder: { type: "string" }
+    }
+  };
 }
 
 function sheetJsonSchema() {
