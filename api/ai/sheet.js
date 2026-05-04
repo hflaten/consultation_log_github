@@ -24,6 +24,11 @@ module.exports = async function handler(req, res) {
       return send(res, 200, { item: refined });
     }
 
+    if (action === "detect_billing_triggers") {
+      const triggers = await detectBillingTriggers(input).catch(() => []);
+      return send(res, 200, { triggers });
+    }
+
     if (action === "review") {
       validateReviewInput(input);
       const reviewedSheet = markSheetReviewed(input.sheet, input);
@@ -55,6 +60,69 @@ function normalizeRequestBody(body) {
   if (!body) return {};
   if (typeof body === "string") return JSON.parse(body);
   return body;
+}
+
+async function detectBillingTriggers(input) {
+  const item = input.item || {};
+  const availableTriggers = Array.isArray(input.availableTriggers) ? input.availableTriggers.filter((trigger) => typeof trigger === "string") : [];
+  if (item.type !== "Undersøkelse" || typeof item.text !== "string" || item.text.trim().length < 3 || availableTriggers.length === 0) return [];
+  if (!process.env.OPENAI_API_KEY) return [];
+
+  const response = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      max_output_tokens: 250,
+      instructions: [
+        "Du er et konservativt klassifiseringssystem for norske legekontor.",
+        "Finn om en kort fritekst beskriver en utført prosedyre som matcher en eller flere faktureringstriggere.",
+        "Returner kun triggere som klart samsvarer. Ikke gjett."
+      ].join(" "),
+      input: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: JSON.stringify({
+                available_triggers: availableTriggers,
+                extra_item: item.text
+              })
+            }
+          ]
+        }
+      ],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "billing_trigger_match",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["matched_triggers", "confidence"],
+            properties: {
+              matched_triggers: {
+                type: "array",
+                items: { type: "string", enum: availableTriggers }
+              },
+              confidence: { type: "string", enum: ["high", "low"] }
+            }
+          }
+        }
+      }
+    })
+  });
+
+  if (!response.ok) return [];
+  const parsed = parseResponseJson(await response.json());
+  if (!parsed || parsed.confidence === "low" || !Array.isArray(parsed.matched_triggers)) return [];
+  return parsed.matched_triggers.filter((trigger) => availableTriggers.includes(trigger));
 }
 
 function validateInput(input) {

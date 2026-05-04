@@ -196,6 +196,25 @@
             <div id="riskPanel" class="risk-panel muted">Fyll ut arket for å lage vurdering.</div>
             <button id="assessButton" class="wide-button" type="button" hidden>Lag vurdering</button>
           </aside>
+          <section id="billingPanel" class="billing-panel" aria-labelledby="billing-heading" hidden>
+            <div class="billing-head">
+              <div>
+                <h3 id="billing-heading">Takstforslag</h3>
+                <p id="billingIntro">Gå gjennom forslagene før journalnotatet ferdigstilles.</p>
+              </div>
+              <button id="skipBilling" class="secondary-button compact-button" type="button">Hopp over</button>
+            </div>
+            <div id="billingExpiry" class="billing-expiry" hidden></div>
+            <div id="billingCarousel" class="billing-carousel"></div>
+            <div id="billingSummary" class="billing-summary" hidden></div>
+            <div class="billing-actions">
+              <button id="previousBillingCode" class="secondary-button compact-button" type="button">Forrige</button>
+              <button id="toggleBillingCode" class="secondary-button" type="button">Fjern</button>
+              <button id="nextBillingCode" class="secondary-button compact-button" type="button">Neste</button>
+              <button id="confirmBilling" type="button" hidden>Bekreft og vis notat</button>
+              <button id="copyBilling" class="secondary-button" type="button" hidden>Kopier takster</button>
+            </div>
+          </section>
           <textarea id="reportOutput" rows="12" placeholder="Journalnotat vises her etter vurdering."></textarea>
         </section>
       </section>
@@ -213,6 +232,7 @@
       </div>
     </aside>
 
+    <script src="billing.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

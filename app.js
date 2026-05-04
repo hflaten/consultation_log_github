@@ -120,9 +120,19 @@ const state = {
   activeItemIndex: 0,
   setupStepIndex: 0,
   resultAnnounced: false,
+  sheetReviewCollapsed: false,
   movingSlowly: false,
   setupMovingSlowly: false,
-  completingFlow: false
+  completingFlow: false,
+  tariffData: null,
+  billingSuggestions: [],
+  billingIndex: 0,
+  billingReviewed: {},
+  billingKept: {},
+  billingFinalized: false,
+  billingBlock: "",
+  extraItems: [],
+  extraTriggerMatches: []
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
@@ -175,6 +185,17 @@ const els = {
   hideAssessment: document.querySelector("#hideAssessment"),
   assess: document.querySelector("#assessButton"),
   risk: document.querySelector("#riskPanel"),
+  billingPanel: document.querySelector("#billingPanel"),
+  billingIntro: document.querySelector("#billingIntro"),
+  billingExpiry: document.querySelector("#billingExpiry"),
+  billingCarousel: document.querySelector("#billingCarousel"),
+  billingSummary: document.querySelector("#billingSummary"),
+  previousBillingCode: document.querySelector("#previousBillingCode"),
+  toggleBillingCode: document.querySelector("#toggleBillingCode"),
+  nextBillingCode: document.querySelector("#nextBillingCode"),
+  confirmBilling: document.querySelector("#confirmBilling"),
+  copyBilling: document.querySelector("#copyBilling"),
+  skipBilling: document.querySelector("#skipBilling"),
   flowControls: document.querySelector("#flowControls"),
   showAllMode: document.querySelector("#showAllMode"),
   focusMode: document.querySelector("#focusMode"),
@@ -211,6 +232,12 @@ els.dismissFlowHint.addEventListener("click", () => {
   updateFlowHint();
 });
 els.assess.addEventListener("click", assess);
+els.previousBillingCode.addEventListener("click", () => moveBillingCard(-1));
+els.nextBillingCode.addEventListener("click", () => moveBillingCard(1));
+els.toggleBillingCode.addEventListener("click", toggleBillingCode);
+els.confirmBilling.addEventListener("click", finalizeBilling);
+els.copyBilling.addEventListener("click", copyBillingBlock);
+els.skipBilling.addEventListener("click", skipBilling);
 els.stickyAssess.addEventListener("click", assess);
 els.stickyViewAssessment.addEventListener("click", scrollToAssessment);
 els.stickyDismiss.addEventListener("click", () => {
@@ -237,6 +264,7 @@ document.addEventListener("keydown", handleGlobalKeydown);
 document.addEventListener("keydown", handleSetupGlobalKeydown);
 initializeMetadataOptions();
 updateSetupCarousel();
+loadBillingData();
 updateFlowHint();
 updateStickyPosition();
 focusAgeInput();
@@ -262,6 +290,17 @@ function focusAgeInput() {
     els.age.focus();
     els.age.select();
   }, 0);
+}
+
+async function loadBillingData() {
+  try {
+    const response = await fetch("normaltariffen_2025_2026.json");
+    if (!response.ok) throw new Error(`Tariff load failed ${response.status}`);
+    state.tariffData = await response.json();
+  } catch (error) {
+    console.warn("Could not load Normaltariffen data:", error);
+    state.tariffData = null;
+  }
 }
 
 function initializeMetadataOptions() {
@@ -526,6 +565,8 @@ async function generateSheet() {
   state.viewMode = "focus";
   state.activeItemIndex = 0;
   state.resultAnnounced = false;
+  state.sheetReviewCollapsed = false;
+  resetBillingState({ keepExtraItems: true, keepExtraTriggerMatches: true });
   renderSheet();
   updateCompletion();
   resetReport();
@@ -576,6 +617,7 @@ async function addCustomQuestion() {
   try {
     const entry = await refineCustomQuestion(rawText, targetKey, id);
     state.sheet[targetKey].push(entry);
+    registerExtraItem(rawText, targetKey);
     markSheetModified();
     state.resultAnnounced = false;
     state.answers[id] = {};
@@ -590,6 +632,7 @@ async function addCustomQuestion() {
     console.warn("Custom question refinement failed:", error);
     const entry = fallbackCustomQuestion(rawText, targetKey, id);
     state.sheet[targetKey].push(entry);
+    registerExtraItem(rawText, targetKey);
     markSheetModified();
     state.resultAnnounced = false;
     state.answers[id] = {};
@@ -602,6 +645,45 @@ async function addCustomQuestion() {
     focusActiveItemControl();
   } finally {
     els.addCustomQuestion.disabled = false;
+  }
+}
+
+function registerExtraItem(rawText, targetKey) {
+  const item = {
+    text: rawText,
+    type: targetKey === "examinations" ? "Undersøkelse" : "Spørsmål"
+  };
+  state.extraItems.push(item);
+  if (item.type === "Undersøkelse" && item.text.trim().length >= 3) {
+    detectBillingTriggersForExtraItem(item);
+  }
+}
+
+async function detectBillingTriggersForExtraItem(item) {
+  if (!state.tariffData) return;
+  const active = ConsultAssistBilling.resolveTriggersFromSheet(buildSheetAnswerMap(), state.tariffData).triggers;
+  const availableTriggers = Object.keys(state.tariffData.consultation_trigger_map || {})
+    .filter((trigger) => !active.has(trigger));
+
+  try {
+    const response = await fetch("/api/ai/sheet", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: "detect_billing_triggers",
+        item,
+        availableTriggers
+      })
+    });
+    if (!response.ok) return;
+    const data = await response.json();
+    const triggers = Array.isArray(data.triggers) ? data.triggers.filter((trigger) => availableTriggers.includes(trigger)) : [];
+    if (triggers.length > 0) {
+      state.extraTriggerMatches.push({ text: item.text, triggers });
+      state.billingFinalized = false;
+    }
+  } catch (error) {
+    // Billing AI is additive only. Never interrupt the consultation flow.
   }
 }
 
@@ -660,6 +742,8 @@ function markSheetModified() {
   state.sheet.review = buildDraftReviewMetadata(sourceBasis(), "clinician_modified");
   state.assessment = null;
   state.assessmentStale = false;
+  state.sheetReviewCollapsed = false;
+  resetBillingState({ keepExtraItems: true, keepExtraTriggerMatches: true });
   resetReport();
 }
 
@@ -671,6 +755,25 @@ function renderSheet() {
   els.patientContextText.textContent = patientContextText();
   els.generatedAtText.textContent = `Generert ${formatDateTime(sheet.createdAt || new Date().toISOString())}`;
   updateReviewUi();
+
+  if (state.sheetReviewCollapsed) {
+    const { completed, total, percent } = getCompletion();
+    els.sheetContainer.className = "completion-bridge";
+    els.sheetContainer.innerHTML = `
+      <div>
+        <p class="eyebrow">Konsultasjonsark ferdig</p>
+        <h3 class="sheet-title">${escapeHtml(sheet.title)}</h3>
+        <p>${completed} av ${total} punkter er besvart (${percent}%). Gå videre til vurdering, takstforslag og journalnotat.</p>
+      </div>
+      <button class="secondary-button" type="button" data-action="review-sheet">Rediger ark</button>
+    `;
+    els.sheetContainer.querySelector('[data-action="review-sheet"]')?.addEventListener("click", editSheet);
+    setSetupCollapsed(true);
+    updateFlowControls();
+    updatePostSheetActions();
+    return;
+  }
+
   els.sheetContainer.className = state.viewMode === "focus" ? "focus-mode" : "";
   els.sheetContainer.innerHTML = [
     `<h3 class="sheet-title">${escapeHtml(sheet.title)}</h3>`,
@@ -1029,6 +1132,8 @@ function handleGlobalKeydown(event) {
   const isTextInput = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
   if (isTextInput) return;
 
+  if (handleBillingKeydown(event)) return;
+
   if (/^[1-5]$/.test(event.key)) {
     const active = activeItem();
     if (!active) return;
@@ -1078,6 +1183,38 @@ function handleGlobalKeydown(event) {
     event.preventDefault();
     moveActiveItem(-1);
   }
+}
+
+function handleBillingKeydown(event) {
+  if (!state.billingSuggestions.length || els.billingPanel.hidden || state.billingFinalized) return false;
+  const isInResultFlow = els.resultPanel.contains(document.activeElement) || state.sheetReviewCollapsed || state.viewMode === "all";
+  if (!isInResultFlow) return false;
+
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    moveBillingCard(1);
+    return true;
+  }
+
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    moveBillingCard(-1);
+    return true;
+  }
+
+  if (event.key === " " || event.key.toLowerCase() === "f") {
+    event.preventDefault();
+    toggleBillingCode();
+    return true;
+  }
+
+  if (event.key === "Enter" && !els.confirmBilling.hidden) {
+    event.preventDefault();
+    finalizeBilling();
+    return true;
+  }
+
+  return false;
 }
 
 function updateCompletion() {
@@ -1131,6 +1268,7 @@ function assess(options = {}) {
   els.report.value = buildReport();
   els.copy.disabled = false;
   els.pdf.disabled = false;
+  initializeBillingFlow();
   updateStickyActionBar();
   updateAssessmentControls();
   if (options.scroll === false) return;
@@ -1183,12 +1321,177 @@ Plan:
 ${state.sheet.followUp.map((line) => `- ${line}`).join("\n")}
 
 Merknad:
-Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.`;
+Teksten er beslutningsstøtte og må kvalitetssikres av lege før den lagres i journal.${state.billingBlock ? `\n\n${state.billingBlock}` : ""}`;
 }
 
 async function copyReport() {
   await navigator.clipboard.writeText(els.report.value);
   els.cacheStatus.textContent = "Journalnotat kopiert";
+}
+
+async function copyBillingBlock() {
+  if (!state.billingBlock) return;
+  await navigator.clipboard.writeText(state.billingBlock);
+  els.cacheStatus.textContent = "Takster kopiert";
+}
+
+function buildSheetAnswerMap() {
+  if (!state.sheet) return {};
+  return sheetItems().reduce((answers, entry) => {
+    const answer = state.answers[entry.id];
+    if (!answer) return answers;
+    answers[entry.id] = {
+      questionKey: entry.id,
+      questionLabel: entry.label,
+      answerValue: answer.choice || answer.text || ""
+    };
+    return answers;
+  }, {});
+}
+
+function resetBillingState(options = {}) {
+  state.billingSuggestions = [];
+  state.billingIndex = 0;
+  state.billingReviewed = {};
+  state.billingKept = {};
+  state.billingFinalized = false;
+  state.billingBlock = "";
+  if (!options.keepExtraItems) state.extraItems = [];
+  if (!options.keepExtraTriggerMatches) state.extraTriggerMatches = [];
+  if (els.billingPanel) els.billingPanel.hidden = true;
+  if (els.billingSummary) els.billingSummary.hidden = true;
+  if (els.copyBilling) els.copyBilling.hidden = true;
+}
+
+function initializeBillingFlow() {
+  if (!state.sheet || !state.assessment || state.billingFinalized || !window.ConsultAssistBilling) return;
+  if (!state.tariffData) {
+    els.billingPanel.hidden = true;
+    return;
+  }
+
+  const suggestions = ConsultAssistBilling.resolveBillingSuggestions({
+    sheetAnswers: buildSheetAnswerMap(),
+    extraTriggerMatches: state.extraTriggerMatches,
+    tariffData: state.tariffData
+  });
+
+  state.billingSuggestions = suggestions;
+  state.billingIndex = 0;
+  state.billingReviewed = {};
+  state.billingKept = suggestions.reduce((kept, takst) => {
+    kept[takst.code] = true;
+    return kept;
+  }, {});
+  state.billingBlock = "";
+  els.billingPanel.hidden = suggestions.length === 0;
+
+  if (suggestions.length === 0) return;
+  if (ConsultAssistBilling.shouldWarnTariffExpiry(state.tariffData.meta)) {
+    els.billingExpiry.hidden = false;
+    els.billingExpiry.textContent = `Normaltariffen utløper ${state.tariffData.meta.valid_to}. Takstfilen må oppdateres.`;
+  } else {
+    els.billingExpiry.hidden = true;
+    els.billingExpiry.textContent = "";
+  }
+
+  renderBillingCarousel();
+}
+
+function renderBillingCarousel() {
+  const total = state.billingSuggestions.length;
+  const takst = state.billingSuggestions[state.billingIndex];
+  if (!takst) {
+    els.billingPanel.hidden = true;
+    return;
+  }
+
+  state.billingReviewed[takst.code] = true;
+  const kept = state.billingKept[takst.code] !== false;
+  const reviewedCount = Object.keys(state.billingReviewed).length;
+  els.billingIntro.textContent = `${reviewedCount} / ${total} takster gjennomgått. Alle forslag står på Behold til legen fjerner dem.`;
+  els.billingCarousel.innerHTML = `
+    <article class="billing-card">
+      <div class="billing-card-top">
+        <strong>${escapeHtml(takst.code)}</strong>
+        <span>${state.billingIndex + 1} / ${total}</span>
+      </div>
+      <h4>${escapeHtml(takst.short_description)}</h4>
+      <p>${escapeHtml(takst.full_description)}</p>
+      <div class="billing-money">${escapeHtml(ConsultAssistBilling.formatMoneyLine(takst))}</div>
+      ${takst.clinical_notes ? `<p class="billing-note">${escapeHtml(takst.clinical_notes)}</p>` : ""}
+      <p class="billing-source">Basert på: ${escapeHtml((takst.sources || []).join("; "))}</p>
+      <div class="billing-state ${kept ? "kept" : "removed"}">${kept ? "Beholdes" : "Fjernes"}</div>
+      <p class="billing-keys"><kbd>←</kbd><kbd>→</kbd> bla <kbd>F</kbd> fjern/behold <kbd>Enter</kbd> bekreft når alle er sett</p>
+    </article>
+  `;
+
+  els.previousBillingCode.disabled = state.billingIndex === 0;
+  els.nextBillingCode.disabled = state.billingIndex >= total - 1;
+  els.toggleBillingCode.textContent = kept ? "Fjern" : "Behold";
+  els.confirmBilling.hidden = state.billingFinalized || reviewedCount < total;
+  els.copyBilling.hidden = !state.billingBlock;
+  renderBillingSummary();
+}
+
+function moveBillingCard(direction) {
+  if (state.billingSuggestions.length === 0) return;
+  state.billingReviewed[state.billingSuggestions[state.billingIndex].code] = true;
+  state.billingIndex = Math.min(Math.max(state.billingIndex + direction, 0), state.billingSuggestions.length - 1);
+  renderBillingCarousel();
+}
+
+function toggleBillingCode() {
+  const takst = state.billingSuggestions[state.billingIndex];
+  if (!takst) return;
+  state.billingReviewed[takst.code] = true;
+  state.billingKept[takst.code] = state.billingKept[takst.code] === false;
+  renderBillingCarousel();
+}
+
+function renderBillingSummary() {
+  const reviewedCount = Object.keys(state.billingReviewed).length;
+  if (reviewedCount < state.billingSuggestions.length) {
+    els.billingSummary.hidden = true;
+    els.billingSummary.innerHTML = "";
+    return;
+  }
+  const keptTakster = keptBillingTakster();
+  els.billingSummary.hidden = false;
+  els.billingSummary.innerHTML = `
+    <strong>Oppsummering</strong>
+    <ul>${keptTakster.map((takst) => `<li>${escapeHtml(takst.code)} - ${escapeHtml(takst.short_description)}</li>`).join("") || "<li>Ingen takster beholdt.</li>"}</ul>
+  `;
+}
+
+function keptBillingTakster() {
+  return state.billingSuggestions.filter((takst) => state.billingKept[takst.code] !== false);
+}
+
+function finalizeBilling() {
+  state.billingSuggestions.forEach((takst) => {
+    state.billingReviewed[takst.code] = true;
+  });
+  state.billingBlock = ConsultAssistBilling.formatTakstBlock(keptBillingTakster());
+  state.billingFinalized = true;
+  els.report.value = buildReport();
+  els.copyBilling.hidden = !state.billingBlock;
+  els.confirmBilling.hidden = true;
+  els.cacheStatus.textContent = "Takster lagt til i journalnotatet";
+  renderBillingCarousel();
+  setTimeout(() => els.report.focus({ preventScroll: true }), 120);
+}
+
+function skipBilling() {
+  state.billingSuggestions.forEach((takst) => {
+    state.billingReviewed[takst.code] = true;
+    state.billingKept[takst.code] = false;
+  });
+  state.billingBlock = "";
+  state.billingFinalized = true;
+  els.billingPanel.hidden = true;
+  els.report.value = buildReport();
+  els.cacheStatus.textContent = "Takstforslag hoppet over";
 }
 
 function clearAnswers() {
@@ -1197,6 +1500,7 @@ function clearAnswers() {
   state.assessmentHidden = false;
   state.assessmentStale = false;
   state.stickyDismissed = false;
+  resetBillingState({ keepExtraItems: true, keepExtraTriggerMatches: true });
   if (state.sheet) renderSheet();
   updateCompletion();
   resetReport();
@@ -1214,9 +1518,11 @@ function prepareNextPatient() {
   state.activeItemIndex = 0;
   state.setupStepIndex = 0;
   state.resultAnnounced = false;
+  state.sheetReviewCollapsed = false;
   state.movingSlowly = false;
   state.setupMovingSlowly = false;
   state.completingFlow = false;
+  resetBillingState();
   els.patientId.value = "";
   els.age.value = "";
   els.caseInput.value = "";
@@ -1249,6 +1555,7 @@ function resetReport() {
   els.report.value = "";
   els.copy.disabled = true;
   els.pdf.disabled = true;
+  if (!state.assessment) els.billingPanel.hidden = true;
   updateAssessmentControls();
   updateStickyActionBar();
 }
@@ -1433,6 +1740,7 @@ function finishQuestionnaireFlow() {
   setTimeout(() => {
     state.completingFlow = false;
     state.viewMode = "all";
+    state.sheetReviewCollapsed = true;
     renderSheet();
     setTimeout(() => {
       assess({ scroll: false });
@@ -1541,6 +1849,7 @@ function slowScrollTo(element, duration = 1400) {
 }
 
 function editSheet() {
+  state.sheetReviewCollapsed = false;
   setViewMode("all");
   slowScrollTo(els.sheetContainer, SCROLL_TRANSITION_MS);
   setTimeout(() => {
