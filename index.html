@@ -40,7 +40,6 @@
               <h2 id="case-heading">Pasient og problemstilling</h2>
               <p>Beskriv konsultasjonen. Arket hentes fra cache når samme type finnes.</p>
             </div>
-            <button id="loadExample" class="ghost-button" type="button">Eksempel</button>
           </div>
 
           <div class="setup-flow-shell">
@@ -48,11 +47,11 @@
 
             <div class="form-grid setup-carousel">
               <label class="setup-field active" data-setup-key="age">
-                <span class="field-label-row">Alder <span class="key-hints"><kbd>0-9</kbd><span>skriv</span><kbd>Enter</kbd><span>neste</span></span></span>
+                <span class="field-label-row">Alder <span class="key-hints"><kbd>0-9</kbd><span>skriv</span><kbd>↑</kbd><kbd>↓</kbd><span>steg</span><kbd>Enter</kbd><span>neste</span></span></span>
                 <input id="ageInput" inputmode="numeric" min="0" max="110" aria-label="Alder" placeholder="44" autofocus>
               </label>
               <label class="setup-field" data-setup-key="sex">
-                <span class="field-label-row">Kjønn <span class="key-hints"><kbd>1</kbd><span>Mann</span><kbd>2</kbd><span>Kvinne</span><kbd>3</kbd><span>Annet</span></span></span>
+                <span class="field-label-row">Kjønn <span class="key-hints"><kbd>1</kbd><span>Mann</span><kbd>2</kbd><span>Kvinne</span><kbd>3</kbd><span>Annet</span><kbd>↑</kbd><kbd>↓</kbd><span>steg</span></span></span>
                 <select id="sexInput" class="metadata-native" aria-label="Kjønn" tabindex="-1">
                   <option value="mann">Mann</option>
                   <option value="kvinne">Kvinne</option>
@@ -61,7 +60,7 @@
                 <div class="metadata-options" data-target="sexInput"></div>
               </label>
               <label class="setup-field" data-setup-key="sheetType">
-                <span class="field-label-row">Arktype <span class="key-hints"><kbd>1</kbd><span>Min</span><kbd>2</kbd><span>Akutt</span><kbd>3</kbd><span>Oppf.</span></span></span>
+                <span class="field-label-row">Arktype <span class="key-hints"><kbd>1</kbd><span>Min</span><kbd>2</kbd><span>Akutt</span><kbd>3</kbd><span>Oppf.</span><kbd>↑</kbd><kbd>↓</kbd><span>steg</span></span></span>
                 <select id="sheetType" class="metadata-native" aria-label="Arktype" tabindex="-1">
                   <option value="minimumsliste">Minimumsliste</option>
                   <option value="akuttvurdering">Akuttvurdering</option>
@@ -70,7 +69,7 @@
                 <div class="metadata-options" data-target="sheetType"></div>
               </label>
               <label class="setup-field" data-setup-key="firstEpisode">
-                <span class="field-label-row">Første episode <span class="key-hints"><kbd>1</kbd><span>Ja</span><kbd>2</kbd><span>Nei</span><kbd>3</kbd><span>Uklart</span></span></span>
+                <span class="field-label-row">Første episode <span class="key-hints"><kbd>1</kbd><span>Ja</span><kbd>2</kbd><span>Nei</span><kbd>3</kbd><span>Uklart</span><kbd>↑</kbd><kbd>↓</kbd><span>steg</span></span></span>
                 <select id="firstEpisodeInput" class="metadata-native" aria-label="Første episode" tabindex="-1">
                   <option value="ja">Ja, første gang</option>
                   <option value="nei">Nei, kjent/tilbakevendende</option>
@@ -79,7 +78,7 @@
                 <div class="metadata-options" data-target="firstEpisodeInput"></div>
               </label>
               <label class="setup-field" data-setup-key="timeBudget">
-                <span class="field-label-row">Konsultasjon <span class="key-hints"><kbd>1</kbd><span>15</span><kbd>2</kbd><span>20</span><kbd>3</kbd><span>30</span></span></span>
+                <span class="field-label-row">Konsultasjon <span class="key-hints"><kbd>1</kbd><span>15</span><kbd>2</kbd><span>20</span><kbd>3</kbd><span>30</span><kbd>↑</kbd><kbd>↓</kbd><span>steg</span></span></span>
                 <select id="timeBudgetInput" class="metadata-native" aria-label="Konsultasjonslengde" tabindex="-1">
                   <option value="15">15 min triage</option>
                   <option value="20">20 min</option>
@@ -88,11 +87,11 @@
                 <div class="metadata-options" data-target="timeBudgetInput"></div>
               </label>
               <label class="setup-field" data-setup-key="patientId">
-                <span class="field-label-row">Pasient-ID / initialer <span class="key-hints optional-hint"><kbd>Enter</kbd><span>neste</span></span></span>
+                <span class="field-label-row">Pasient-ID / initialer <span class="key-hints optional-hint"><kbd>↑</kbd><kbd>↓</kbd><span>steg</span><kbd>Enter</kbd><span>neste</span></span></span>
                 <input id="patientIdInput" aria-label="Pasient-ID eller initialer" placeholder="Valgfritt">
               </label>
               <label class="setup-field full-label" data-setup-key="caseInput">
-                <span class="field-label-row">Presenterende problemstilling <span class="key-hints"><kbd>Enter</kbd><span>lag ark</span><kbd>Tab</kbd><span>hent</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>ny linje</span></span></span>
+                <span class="field-label-row">Presenterende problemstilling <span class="key-hints"><kbd>↑</kbd><kbd>↓</kbd><span>steg</span><kbd>Enter</kbd><span>lag ark</span><kbd>Tab</kbd><span>hent</span><kbd>Shift</kbd><span>+</span><kbd>Enter</kbd><span>ny linje</span></span></span>
                 <textarea id="caseInput" rows="4" placeholder="F.eks. svimmelhet siden i går, vondt kne etter fall, hoste i tre uker"></textarea>
               </label>
             </div>
@@ -178,6 +177,7 @@
             </div>
             <div class="report-actions">
               <button id="editSheet" class="secondary-button" type="button">Rediger ark</button>
+              <button id="resultNextPatient" class="secondary-button" type="button">Neste pasient</button>
               <button id="copyReport" class="secondary-button" type="button" disabled>Kopier</button>
               <button id="exportPdf" type="button" disabled>Eksporter PDF</button>
             </div>

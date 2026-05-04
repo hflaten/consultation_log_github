@@ -119,10 +119,17 @@ const state = {
   viewMode: "focus",
   activeItemIndex: 0,
   setupStepIndex: 0,
-  resultAnnounced: false
+  resultAnnounced: false,
+  movingSlowly: false,
+  setupMovingSlowly: false,
+  completingFlow: false
 };
 
 const STICKY_TOP_HIDE_OFFSET = 160;
+const SETUP_TRANSITION_DELAY_MS = 1200;
+const QUESTION_TRANSITION_DELAY_MS = 1600;
+const RESULT_TRANSITION_DELAY_MS = 1800;
+const SCROLL_TRANSITION_MS = 1600;
 const SETUP_FLOW = ["age", "sex", "sheetType", "firstEpisode", "timeBudget", "patientId", "caseInput", "generate"];
 
 const els = {
@@ -139,7 +146,6 @@ const els = {
   setupSummaryText: document.querySelector("#setupSummaryText"),
   editSetup: document.querySelector("#editSetup"),
   generate: document.querySelector("#generateSheet"),
-  example: document.querySelector("#loadExample"),
   clear: document.querySelector("#clearSession"),
   flowHint: document.querySelector("#flowHint"),
   dismissFlowHint: document.querySelector("#dismissFlowHint"),
@@ -162,6 +168,7 @@ const els = {
   nextPatient: document.querySelector("#nextPatient"),
   resultPanel: document.querySelector("#resultPanel"),
   editSheet: document.querySelector("#editSheet"),
+  resultNextPatient: document.querySelector("#resultNextPatient"),
   summaryPanel: document.querySelector(".summary-panel"),
   assessmentFreshness: document.querySelector("#assessmentFreshness"),
   showAssessment: document.querySelector("#showAssessment"),
@@ -186,16 +193,6 @@ const els = {
 };
 
 els.generate.addEventListener("click", generateSheet);
-els.example.addEventListener("click", () => {
-  els.age.value = "44";
-  els.sex.value = "mann";
-  els.sheetType.value = "minimumsliste";
-  els.firstEpisode.value = "ja";
-  els.timeBudget.value = "15";
-  els.patientId.value = "";
-  els.caseInput.value = "Svimmelhet siden i går, første episode. Ønsker minimumsliste for 15 min konsultasjon.";
-  updateFlowHint();
-});
 els.clear.addEventListener("click", prepareNextPatient);
 els.editSetup.addEventListener("click", () => setSetupCollapsed(false));
 els.showAssessment.addEventListener("click", () => setAssessmentHidden(false));
@@ -207,6 +204,7 @@ els.nextItem.addEventListener("click", () => moveActiveItem(1));
 els.addCustomQuestion.addEventListener("click", addCustomQuestion);
 els.nextPatient.addEventListener("click", prepareNextPatient);
 els.editSheet.addEventListener("click", editSheet);
+els.resultNextPatient.addEventListener("click", prepareNextPatient);
 els.reviewTemplate.addEventListener("click", approveTemplate);
 els.dismissFlowHint.addEventListener("click", () => {
   localStorage.setItem(FLOW_HINT_DISMISSED_KEY, "true");
@@ -289,7 +287,7 @@ function chooseMetadataOption(button) {
   select.selectedIndex = Number.parseInt(button.dataset.index, 10);
   select.dispatchEvent(new Event("change", { bubbles: true }));
   updateMetadataOptions(select);
-  moveSetupFocus(select, 1);
+  scheduleSetupMove(select, 1);
 }
 
 function updateMetadataOptions(select) {
@@ -348,6 +346,21 @@ function focusSetupStep() {
   if (focusTarget instanceof HTMLInputElement || focusTarget instanceof HTMLTextAreaElement) focusTarget.select?.();
 }
 
+function moveSetupStep(direction) {
+  const currentKey = SETUP_FLOW[state.setupStepIndex];
+  const currentElement = els[currentKey] || setupFields()[state.setupStepIndex];
+  moveSetupFocus(currentElement, direction);
+}
+
+function scheduleSetupMove(currentElement, direction) {
+  if (state.setupMovingSlowly) return;
+  state.setupMovingSlowly = true;
+  setTimeout(() => {
+    state.setupMovingSlowly = false;
+    moveSetupFocus(currentElement, direction);
+  }, SETUP_TRANSITION_DELAY_MS);
+}
+
 function normalizeAgeInput() {
   const normalized = els.age.value.replace(/[^\d]/g, "").slice(0, 3);
   if (els.age.value !== normalized) els.age.value = normalized;
@@ -366,6 +379,13 @@ function validateAgeInput() {
 }
 
 function handleSetupKeydown(event) {
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    event.stopPropagation();
+    moveSetupStep(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
+
   if (event.key === "Tab" && event.currentTarget === els.caseInput && !event.shiftKey) {
     if (!canGenerateFromSetup()) return;
     event.preventDefault();
@@ -383,7 +403,7 @@ function handleSetupKeydown(event) {
       }
       return;
     }
-    moveSetupFocus(event.currentTarget, 1);
+    scheduleSetupMove(event.currentTarget, 1);
     return;
   }
 
@@ -393,13 +413,18 @@ function handleSetupKeydown(event) {
       event.preventDefault();
       event.currentTarget.selectedIndex = optionIndex;
       event.currentTarget.dispatchEvent(new Event("change", { bubbles: true }));
-      moveSetupFocus(event.currentTarget, 1);
+      scheduleSetupMove(event.currentTarget, 1);
     }
   }
 }
 
 function handleSetupGlobalKeydown(event) {
   if (state.sheet || els.setupPanel.classList.contains("collapsed")) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    moveSetupStep(event.key === "ArrowDown" ? 1 : -1);
+    return;
+  }
   if (!/^[1-9]$/.test(event.key)) return;
   const key = SETUP_FLOW[state.setupStepIndex];
   const select = key ? els[key] : null;
@@ -410,7 +435,7 @@ function handleSetupGlobalKeydown(event) {
   select.selectedIndex = optionIndex;
   select.dispatchEvent(new Event("change", { bubbles: true }));
   updateMetadataOptions(select);
-  moveSetupFocus(select, 1);
+  scheduleSetupMove(select, 1);
 }
 
 function moveSetupFocus(currentElement, direction) {
@@ -658,6 +683,11 @@ function renderSheet() {
     card.addEventListener("click", () => setActiveItemById(card.dataset.id, false));
   });
 
+  document.querySelectorAll(".neuro-row").forEach((row) => {
+    row.addEventListener("focusin", () => row.classList.add("row-focused"));
+    row.addEventListener("focusout", () => row.classList.remove("row-focused"));
+  });
+
   document.querySelectorAll(".answer-button").forEach((button) => {
     button.addEventListener("click", () => {
       selectAnswer(button);
@@ -713,7 +743,7 @@ function renderSheet() {
   setSetupCollapsed(true);
   updateFlowControls();
   updatePostSheetActions();
-  setTimeout(() => els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  setTimeout(() => slowScrollTo(els.sheetContainer, SCROLL_TRANSITION_MS), 280);
 }
 
 async function approveTemplate() {
@@ -956,7 +986,7 @@ function handleAnswerKeydown(event) {
       event.preventDefault();
       event.stopPropagation();
       if (event.currentTarget.dataset.neuroKey && focusNextNeuroRow(event.currentTarget)) return;
-      moveActiveItem(1);
+      scheduleActiveItemMove(1);
       return;
     }
 
@@ -1018,7 +1048,7 @@ function handleGlobalKeydown(event) {
     const scope = active ? activeCardElement(active.id) : null;
     const focusedButton = scope?.contains(document.activeElement) ? document.activeElement?.closest?.(".answer-button") : null;
     if (focusedButton?.dataset.neuroKey && focusNextNeuroRow(focusedButton)) return;
-    moveActiveItem(1);
+    scheduleActiveItemMove(1);
     return;
   }
 
@@ -1184,6 +1214,9 @@ function prepareNextPatient() {
   state.activeItemIndex = 0;
   state.setupStepIndex = 0;
   state.resultAnnounced = false;
+  state.movingSlowly = false;
+  state.setupMovingSlowly = false;
+  state.completingFlow = false;
   els.patientId.value = "";
   els.age.value = "";
   els.caseInput.value = "";
@@ -1344,9 +1377,22 @@ function setViewMode(mode) {
   if (mode === "focus") focusActiveItemControl();
 }
 
+function scheduleActiveItemMove(direction) {
+  if (state.movingSlowly) return;
+  state.movingSlowly = true;
+  setTimeout(() => {
+    state.movingSlowly = false;
+    moveActiveItem(direction);
+  }, QUESTION_TRANSITION_DELAY_MS);
+}
+
 function moveActiveItem(direction) {
   const total = sheetItems().length;
   if (!total) return;
+  if (direction > 0 && state.activeItemIndex >= total - 1 && isSheetComplete()) {
+    finishQuestionnaireFlow();
+    return;
+  }
   state.activeItemIndex = Math.min(Math.max(state.activeItemIndex + direction, 0), total - 1);
   renderSheet();
   focusActiveItemControl();
@@ -1374,9 +1420,25 @@ function updatePostSheetActions() {
   if (!state.assessment || state.assessmentStale) assess({ scroll: false });
   updateReviewUi();
   if (!state.resultAnnounced) {
-    state.resultAnnounced = true;
-    setTimeout(() => scrollToResults(), 120);
+    finishQuestionnaireFlow();
   }
+}
+
+function finishQuestionnaireFlow() {
+  if (state.resultAnnounced || state.completingFlow) return;
+  state.resultAnnounced = true;
+  state.completingFlow = true;
+  els.cacheStatus.textContent = "Arket er ferdig - gjør klar vurdering og journalnotat";
+  updateStickyActionBar();
+  setTimeout(() => {
+    state.completingFlow = false;
+    state.viewMode = "all";
+    renderSheet();
+    setTimeout(() => {
+      assess({ scroll: false });
+      scrollToResults();
+    }, RESULT_TRANSITION_DELAY_MS);
+  }, QUESTION_TRANSITION_DELAY_MS);
 }
 
 function activeCardElement(id) {
@@ -1454,13 +1516,33 @@ function scrollToAssessment() {
 }
 
 function scrollToResults() {
-  els.resultPanel.scrollIntoView({ behavior: "smooth", block: "start" });
-  els.resultPanel.focus({ preventScroll: true });
+  slowScrollTo(els.resultPanel, SCROLL_TRANSITION_MS);
+  setTimeout(() => els.resultPanel.focus({ preventScroll: true }), SCROLL_TRANSITION_MS + 80);
+}
+
+function slowScrollTo(element, duration = 1400) {
+  if (!element) return;
+  const start = window.scrollY;
+  const target = element.getBoundingClientRect().top + window.scrollY - 16;
+  const distance = target - start;
+  if (Math.abs(distance) < 8) return;
+  const startTime = performance.now();
+  const ease = (progress) => progress < 0.5
+    ? 4 * progress * progress * progress
+    : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+  function step(now) {
+    const progress = Math.min((now - startTime) / duration, 1);
+    window.scrollTo(0, start + distance * ease(progress));
+    if (progress < 1) requestAnimationFrame(step);
+  }
+
+  requestAnimationFrame(step);
 }
 
 function editSheet() {
   setViewMode("all");
-  els.sheetContainer.scrollIntoView({ behavior: "smooth", block: "start" });
+  slowScrollTo(els.sheetContainer, SCROLL_TRANSITION_MS);
   setTimeout(() => {
     const firstUnanswered = document.querySelector(".item-card.unanswered .answer-button, .item-card .answer-button");
     firstUnanswered?.focus({ preventScroll: true });
