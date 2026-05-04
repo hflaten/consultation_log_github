@@ -350,22 +350,24 @@ strong {
   justify-content: center;
   min-height: 46px;
   position: relative;
+  transition: background 320ms ease, border-color 320ms ease, color 320ms ease, box-shadow 320ms ease;
 }
 
 .metadata-option.active {
-  background: #fff;
-  border-color: var(--line);
-  color: var(--ink);
+  background: var(--primary-soft);
+  border-color: var(--primary-soft-strong);
+  box-shadow: inset 0 -3px 0 rgba(15, 118, 110, 0.22);
+  color: var(--primary-strong);
 }
 
 .metadata-option.active::after {
-  background: var(--focus-neutral-strong);
+  background: var(--primary);
   border-radius: 999px;
   bottom: 6px;
   content: "";
   height: 3px;
   left: 18px;
-  opacity: 0.72;
+  opacity: 0.36;
   position: absolute;
   right: 18px;
 }
@@ -752,7 +754,15 @@ input::placeholder {
 }
 
 .focus-mode .item-card {
-  animation: question-flow-in 1100ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: question-flow-in 520ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.focus-mode .item-card.flow-exit-next {
+  animation: question-flow-out-next 420ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
+}
+
+.focus-mode .item-card.flow-exit-previous {
+  animation: question-flow-out-previous 420ms cubic-bezier(0.65, 0, 0.35, 1) forwards;
 }
 
 .item-card.answered {
@@ -819,7 +829,7 @@ input::placeholder {
   min-height: 36px;
   position: relative;
   padding: 0 12px;
-  transition: background 720ms ease, border-color 720ms ease, color 720ms ease, transform 720ms ease;
+  transition: background 260ms ease, border-color 260ms ease, color 260ms ease, transform 260ms ease;
 }
 
 .answer-button:hover {
@@ -938,12 +948,36 @@ input::placeholder {
 @keyframes question-flow-in {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translateY(14px) scale(0.992);
   }
 
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes question-flow-out-next {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.992);
+  }
+}
+
+@keyframes question-flow-out-previous {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(10px) scale(0.992);
   }
 }
 

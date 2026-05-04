@@ -137,7 +137,7 @@ const state = {
 
 const STICKY_TOP_HIDE_OFFSET = 160;
 const SETUP_TRANSITION_DELAY_MS = 1200;
-const QUESTION_TRANSITION_DELAY_MS = 1600;
+const QUESTION_TRANSITION_DELAY_MS = 520;
 const RESULT_TRANSITION_DELAY_MS = 1800;
 const SCROLL_TRANSITION_MS = 1600;
 const SETUP_FLOW = ["age", "sex", "sheetType", "firstEpisode", "timeBudget", "patientId", "caseInput", "generate"];
@@ -1687,6 +1687,7 @@ function setViewMode(mode) {
 function scheduleActiveItemMove(direction) {
   if (state.movingSlowly) return;
   state.movingSlowly = true;
+  activeCardElement(activeItem()?.id)?.classList.add(direction > 0 ? "flow-exit-next" : "flow-exit-previous");
   setTimeout(() => {
     state.movingSlowly = false;
     moveActiveItem(direction);
